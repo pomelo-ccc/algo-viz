@@ -9,4 +9,16 @@ export default defineConfig({
     strictPort: true,
     allowedHosts: true,
   },
+  build: {
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/three') || id.includes('OrbitControls')) {
+            return 'three';
+          }
+        },
+      },
+    },
+  },
 });

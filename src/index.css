@@ -1463,3 +1463,57 @@ input[type="range"]::-moz-range-thumb:hover {
 .hero-mode-chip.active .hero-mode-dot {
   animation: pulseGlow 1.5s ease-in-out infinite;
 }
+
+/* === 3D Visualization === */
+.canvas-container-3d {
+  position: relative;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  height: 480px;
+  margin-bottom: 1.5rem;
+}
+
+.three-container {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+
+.three-container:active {
+  cursor: grabbing;
+}
+
+.three-hint {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.8rem;
+  background: rgba(10, 14, 26, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.three-hint-divider {
+  color: var(--text-tertiary);
+}
+
+.visualization-header .hint {
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}

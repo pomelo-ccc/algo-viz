@@ -1,10 +1,11 @@
-import { createSignal, createEffect, onMount, onCleanup } from 'solid-js';
+import { createSignal, createEffect, onMount, onCleanup, on } from 'solid-js';
 import { sortingCodes, languageLabels, type Language } from '../utils/codeData';
 import Dropdown from '../components/Dropdown';
 import CodePanel from '../components/CodePanel';
 import ControlPanel from '../components/ControlPanel';
-import { DoubleBufferedRenderer, createSortingRenderer, type RenderState } from '../utils/canvasRenderer';
 import { AnimationController, type AnimStep } from '../utils/animation';
+import { SortingVisualizer } from '../utils/three/SortingVisualizer';
+import { DARK_THEME, LIGHT_THEME } from '../utils/three/ThreeVisualizer';
 
 interface ComplexityInfo {
   avg: string;
@@ -14,23 +15,23 @@ interface ComplexityInfo {
 }
 
 const complexityMap: Record<string, ComplexityInfo> = {
-  bubble: { avg: 'O(n\u00B2)', worst: 'O(n\u00B2)', space: 'O(1)', stability: '稳定' },
-  selection: { avg: 'O(n\u00B2)', worst: 'O(n\u00B2)', space: 'O(1)', stability: '不稳定' },
-  insertion: { avg: 'O(n\u00B2)', worst: 'O(n\u00B2)', space: 'O(1)', stability: '稳定' },
-  quick: { avg: 'O(n log n)', worst: 'O(n\u00B2)', space: 'O(log n)', stability: '不稳定' },
+  bubble: { avg: 'O(n²)', worst: 'O(n²)', space: 'O(1)', stability: '稳定' },
+  selection: { avg: 'O(n²)', worst: 'O(n²)', space: 'O(1)', stability: '不稳定' },
+  insertion: { avg: 'O(n²)', worst: 'O(n²)', space: 'O(1)', stability: '稳定' },
+  quick: { avg: 'O(n log n)', worst: 'O(n²)', space: 'O(log n)', stability: '不稳定' },
   merge: { avg: 'O(n log n)', worst: 'O(n log n)', space: 'O(n)', stability: '稳定' },
   heap: { avg: 'O(n log n)', worst: 'O(n log n)', space: 'O(1)', stability: '不稳定' },
-  shell: { avg: 'O(n log n)', worst: 'O(n\u00B2)', space: 'O(1)', stability: '不稳定' },
+  shell: { avg: 'O(n log n)', worst: 'O(n²)', space: 'O(1)', stability: '不稳定' },
   counting: { avg: 'O(n + k)', worst: 'O(n + k)', space: 'O(k)', stability: '稳定' },
   radix: { avg: 'O(d(n + k))', worst: 'O(d(n + k))', space: 'O(n + k)', stability: '稳定' },
 };
 
 export default function Sorting() {
-  let canvasRef: HTMLCanvasElement;
-  let renderer: DoubleBufferedRenderer;
+  let containerRef: HTMLDivElement | undefined;
+  let visualizer: SortingVisualizer | undefined;
   let controller: AnimationController<number[]>;
   const [algorithm, setAlgorithm] = createSignal('bubble');
-  const [arraySize, setArraySize] = createSignal(50);
+  const [arraySize, setArraySize] = createSignal(20);
   const [speed, setSpeed] = createSignal(50);
   const [isRunning, setIsRunning] = createSignal(false);
   const [steps, setSteps] = createSignal<string[]>([]);
@@ -40,25 +41,33 @@ export default function Sorting() {
   const [totalSteps, setTotalSteps] = createSignal(0);
 
   onMount(() => {
-    renderer = createSortingRenderer(canvasRef);
+    if (!containerRef) return;
+    visualizer = new SortingVisualizer(containerRef, {
+      cameraPosition: [0, 8, 14],
+      fov: 50,
+    });
+    const isDark = () => document.documentElement.getAttribute('data-theme') === 'dark';
+    visualizer.setTheme(isDark() ? DARK_THEME : LIGHT_THEME);
+    visualizer.start();
+    visualizer.generateRandomArray(arraySize());
+
+    const observer = new MutationObserver(() => {
+      visualizer?.setTheme(isDark() ? DARK_THEME : LIGHT_THEME);
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
     controller = new AnimationController<number[]>({ speed: speed() });
     controller.setCallbacks(
       (step: AnimStep<number[]>) => {
-        const arr = step.state;
-        renderer.render({
-          array: arr,
-          comparing: step.compare || [],
-          swapping: step.swap ? [step.swap[0], step.swap[1]] : [],
-          sorted: step.sorted || [],
-        });
-
-        if (step.swap) {
-          const barWidth = canvasRef.getBoundingClientRect().width / arr.length;
-          const x = (step.swap[0] + 0.5) * barWidth;
-          const height = canvasRef.getBoundingClientRect().height;
-          renderer.emitParticles(x, height - 100, 12, '#1a1a1a');
+        if (step.compare) {
+          visualizer?.highlight(step.compare, 'comparing');
+        } else if (step.swap) {
+          visualizer?.highlight(step.swap, 'swapping');
+        } else if (step.sorted && step.sorted.length > 0) {
+          visualizer?.markSorted(step.sorted);
+        } else {
+          visualizer?.highlight([], 'comparing');
         }
-
         setSteps(prev => [step.description, ...prev].slice(0, 30));
       },
       (state, index, total) => {
@@ -69,10 +78,16 @@ export default function Sorting() {
 
     generateArray();
 
-    const handleResize = () => renderer.resize();
+    const handleResize = () => {
+      if (visualizer && containerRef) {
+        const event = new Event('resize');
+        window.dispatchEvent(event);
+      }
+    };
     window.addEventListener('resize', handleResize);
 
     const handleKeydown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.key === ' ' || e.key === 'Space') {
         e.preventDefault();
         if (isRunning()) pauseSort();
@@ -95,9 +110,10 @@ export default function Sorting() {
 
     onCleanup(() => {
       controller.destroy();
-      renderer.destroy();
+      observer.disconnect();
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('keydown', handleKeydown);
+      visualizer?.stop();
     });
   });
 
@@ -107,12 +123,15 @@ export default function Sorting() {
       arr.push(Math.floor(Math.random() * 85) + 15);
     }
     setArray(arr);
-    controller.reset();
-    controller.setSteps([]);
+    controller?.reset();
+    controller?.setSteps([]);
     setSteps([]);
     setCurrentStep(-1);
     setTotalSteps(0);
-    renderer.render({ array: arr, comparing: [], swapping: [], sorted: [] });
+    if (visualizer) {
+      visualizer.clearScene();
+      visualizer.generateRandomArray(arraySize());
+    }
   };
 
   const buildSteps = (arr: number[], algo: string) => {
@@ -123,109 +142,58 @@ export default function Sorting() {
       case 'bubble':
         for (let i = 0; i < workingArr.length - 1; i++) {
           for (let j = 0; j < workingArr.length - i - 1; j++) {
-            steps.push({
-              state: [...workingArr],
-              description: `比较 ${workingArr[j]} 和 ${workingArr[j + 1]}`,
-              compare: [j, j + 1],
-            });
+            steps.push({ state: [...workingArr], description: `比较 ${workingArr[j]} 和 ${workingArr[j + 1]}`, compare: [j, j + 1] });
             if (workingArr[j] > workingArr[j + 1]) {
               [workingArr[j], workingArr[j + 1]] = [workingArr[j + 1], workingArr[j]];
-              steps.push({
-                state: [...workingArr],
-                description: `交换 ${workingArr[j + 1]} 和 ${workingArr[j]}`,
-                swap: [j, j + 1],
-              });
+              steps.push({ state: [...workingArr], description: `交换 ${workingArr[j + 1]} 和 ${workingArr[j]}`, swap: [j, j + 1] });
             }
           }
-          steps.push({
-            state: [...workingArr],
-            description: `位置 ${workingArr.length - i - 1} 已排序`,
-            sorted: Array.from({ length: i + 1 }, (_, k) => workingArr.length - 1 - k),
-          });
+          steps.push({ state: [...workingArr], description: `位置 ${workingArr.length - i - 1} 已排序`, sorted: Array.from({ length: i + 1 }, (_, k) => workingArr.length - 1 - k) });
         }
         break;
-
       case 'selection':
         for (let i = 0; i < workingArr.length - 1; i++) {
           let minIdx = i;
           for (let j = i + 1; j < workingArr.length; j++) {
-            steps.push({
-              state: [...workingArr],
-              description: `查找最小值: 比较 ${workingArr[j]} 和 ${workingArr[minIdx]}`,
-              compare: [j, minIdx],
-            });
+            steps.push({ state: [...workingArr], description: `查找最小值: 比较 ${workingArr[j]} 和 ${workingArr[minIdx]}`, compare: [j, minIdx] });
             if (workingArr[j] < workingArr[minIdx]) minIdx = j;
           }
           if (minIdx !== i) {
             [workingArr[i], workingArr[minIdx]] = [workingArr[minIdx], workingArr[i]];
-            steps.push({
-              state: [...workingArr],
-              description: `交换 ${workingArr[minIdx]} 到位置 ${i}`,
-              swap: [i, minIdx],
-            });
+            steps.push({ state: [...workingArr], description: `交换 ${workingArr[minIdx]} 到位置 ${i}`, swap: [i, minIdx] });
           }
-          steps.push({
-            state: [...workingArr],
-            description: `位置 ${i} 已排序`,
-            sorted: [i],
-          });
+          steps.push({ state: [...workingArr], description: `位置 ${i} 已排序`, sorted: [i] });
         }
         break;
-
       case 'insertion':
         for (let i = 1; i < workingArr.length; i++) {
           const key = workingArr[i];
           let j = i - 1;
           while (j >= 0 && workingArr[j] > key) {
             workingArr[j + 1] = workingArr[j];
-            steps.push({
-              state: [...workingArr],
-              description: `移动 ${workingArr[j]} 到位置 ${j + 1}`,
-              swap: [j, j + 1],
-            });
+            steps.push({ state: [...workingArr], description: `移动 ${workingArr[j]} 到位置 ${j + 1}`, swap: [j, j + 1] });
             j--;
           }
           workingArr[j + 1] = key;
-          if (j + 1 !== i) {
-            steps.push({
-              state: [...workingArr],
-              description: `插入 ${key} 到位置 ${j + 1}`,
-            });
-          }
         }
         break;
-
       case 'quick':
         const quickSteps: AnimStep<number[]>[] = [];
         const partitionQuick = (arr: number[], low: number, high: number): number => {
           const pivot = arr[high];
           let i = low - 1;
           for (let j = low; j < high; j++) {
-            quickSteps.push({
-              state: [...arr],
-              description: `比较 ${arr[j]} 和 pivot ${pivot}`,
-              compare: [j, high],
-              pivot: high,
-            });
+            quickSteps.push({ state: [...arr], description: `比较 ${arr[j]} 和 pivot ${pivot}`, compare: [j, high], pivot: high });
             if (arr[j] < pivot) {
               i++;
               [arr[i], arr[j]] = [arr[j], arr[i]];
               if (i !== j) {
-                quickSteps.push({
-                  state: [...arr],
-                  description: `交换 ${arr[i]} 和 ${arr[j]}`,
-                  swap: [i, j],
-                });
+                quickSteps.push({ state: [...arr], description: `交换 ${arr[i]} 和 ${arr[j]}`, swap: [i, j] });
               }
             }
           }
           [arr[i + 1], arr[high]] = [arr[high], arr[i + 1]];
-          quickSteps.push({
-            state: [...arr],
-            description: `pivot ${pivot} 放置到位置 ${i + 1}`,
-            swap: [i + 1, high],
-            sorted: [i + 1],
-          });
+          quickSteps.push({ state: [...arr], description: `pivot ${pivot} 放置到位置 ${i + 1}`, swap: [i + 1, high], sorted: [i + 1] });
           return i + 1;
         };
         const quickSort = (arr: number[], low: number, high: number) => {
@@ -238,7 +206,6 @@ export default function Sorting() {
         quickSort(workingArr, 0, workingArr.length - 1);
         steps.push(...quickSteps);
         break;
-
       case 'merge':
         const mergeSteps: AnimStep<number[]>[] = [];
         const merge = (arr: number[], l: number, m: number, r: number) => {
@@ -246,33 +213,14 @@ export default function Sorting() {
           const right = arr.slice(m + 1, r + 1);
           let i = 0, j = 0, k = l;
           while (i < left.length && j < right.length) {
-            mergeSteps.push({
-              state: [...arr],
-              description: `合并: 比较 ${left[i]} 和 ${right[j]}`,
-              compare: [l + i, m + 1 + j],
-            });
-            if (left[i] <= right[j]) {
-              arr[k] = left[i++];
-            } else {
-              arr[k] = right[j++];
-            }
-            mergeSteps.push({
-              state: [...arr],
-              description: `放置 ${arr[k]} 到位置 ${k}`,
-              sorted: [k],
-            });
+            mergeSteps.push({ state: [...arr], description: `合并: 比较 ${left[i]} 和 ${right[j]}`, compare: [l + i, m + 1 + j] });
+            if (left[i] <= right[j]) arr[k] = left[i++];
+            else arr[k] = right[j++];
+            mergeSteps.push({ state: [...arr], description: `放置 ${arr[k]} 到位置 ${k}`, sorted: [k] });
             k++;
           }
-          while (i < left.length) {
-            arr[k] = left[i++];
-            mergeSteps.push({ state: [...arr], description: `放置剩余元素`, sorted: [k] });
-            k++;
-          }
-          while (j < right.length) {
-            arr[k] = right[j++];
-            mergeSteps.push({ state: [...arr], description: `放置剩余元素`, sorted: [k] });
-            k++;
-          }
+          while (i < left.length) { arr[k] = left[i++]; mergeSteps.push({ state: [...arr], description: `放置剩余元素`, sorted: [k] }); k++; }
+          while (j < right.length) { arr[k] = right[j++]; mergeSteps.push({ state: [...arr], description: `放置剩余元素`, sorted: [k] }); k++; }
         };
         const mergeSort = (arr: number[], l: number, r: number) => {
           if (l < r) {
@@ -285,7 +233,6 @@ export default function Sorting() {
         mergeSort(workingArr, 0, workingArr.length - 1);
         steps.push(...mergeSteps);
         break;
-
       case 'heap':
         const heapSteps: AnimStep<number[]>[] = [];
         const heapify = (arr: number[], n: number, i: number) => {
@@ -315,7 +262,6 @@ export default function Sorting() {
         }
         steps.push(...heapSteps);
         break;
-
       case 'shell':
         for (let gap = Math.floor(workingArr.length / 2); gap > 0; gap = Math.floor(gap / 2)) {
           for (let i = gap; i < workingArr.length; i++) {
@@ -323,18 +269,13 @@ export default function Sorting() {
             let j = i;
             while (j >= gap && workingArr[j - gap] > temp) {
               workingArr[j] = workingArr[j - gap];
-              steps.push({
-                state: [...workingArr],
-                description: `移动 ${workingArr[j - gap]} 到位置 ${j}`,
-                swap: [j - gap, j],
-              });
+              steps.push({ state: [...workingArr], description: `移动 ${workingArr[j - gap]} 到位置 ${j}`, swap: [j - gap, j] });
               j -= gap;
             }
             workingArr[j] = temp;
           }
         }
         break;
-
       case 'counting':
         const max = Math.max(...workingArr);
         const count = new Array(max + 1).fill(0);
@@ -344,15 +285,10 @@ export default function Sorting() {
         for (let i = workingArr.length - 1; i >= 0; i--) {
           output[count[workingArr[i]] - 1] = workingArr[i];
           count[workingArr[i]]--;
-          steps.push({
-            state: [...output],
-            description: `放置 ${workingArr[i]} 到位置 ${count[workingArr[i]]}`,
-            sorted: Array.from({ length: workingArr.length - i - 1 }, (_, k) => k),
-          });
+          steps.push({ state: [...output], description: `放置 ${workingArr[i]} 到位置 ${count[workingArr[i]]}`, sorted: Array.from({ length: workingArr.length - i - 1 }, (_, k) => k) });
         }
         for (let i = 0; i < workingArr.length; i++) workingArr[i] = output[i];
         break;
-
       case 'radix':
         const radixMax = Math.max(...workingArr);
         for (let exp = 1; Math.floor(radixMax / exp) > 0; exp *= 10) {
@@ -364,11 +300,7 @@ export default function Sorting() {
             const digit = Math.floor(workingArr[i] / exp) % 10;
             output[count[digit] - 1] = workingArr[i];
             count[digit]--;
-            steps.push({
-              state: [...output],
-              description: `按第 ${exp} 位数字 ${digit} 放置 ${workingArr[i]}`,
-              sorted: Array.from({ length: workingArr.length - i - 1 }, (_, k) => k),
-            });
+            steps.push({ state: [...output], description: `按第 ${exp} 位数字 ${digit} 放置 ${workingArr[i]}`, sorted: Array.from({ length: workingArr.length - i - 1 }, (_, k) => k) });
           }
           for (let i = 0; i < workingArr.length; i++) workingArr[i] = output[i];
         }
@@ -413,30 +345,21 @@ export default function Sorting() {
     generateArray();
   };
 
-  const handleStepForward = () => {
-    if (!isRunning()) {
-      controller.stepForward();
-    }
-  };
-
-  const handleStepBackward = () => {
-    if (!isRunning()) {
-      controller.stepBackward();
-    }
-  };
-
-  const handleSpeedChange = (newSpeed: number) => {
-    setSpeed(newSpeed);
-    controller.setSpeed(newSpeed);
-  };
+  const handleStepForward = () => { if (!isRunning()) controller.stepForward(); };
+  const handleStepBackward = () => { if (!isRunning()) controller.stepBackward(); };
+  const handleSpeedChange = (newSpeed: number) => { setSpeed(newSpeed); controller.setSpeed(newSpeed); };
 
   createEffect(() => {
     const algo = algorithm();
     const info = complexityMap[algo];
-    document.getElementById('time-complexity')!.textContent = info?.avg || 'O(?)';
-    document.getElementById('worst-time')!.textContent = info?.worst || 'O(?)';
-    document.getElementById('space-complexity')!.textContent = info?.space || 'O(?)';
-    document.getElementById('stability')!.textContent = info?.stability || '?';
+    const el1 = document.getElementById('time-complexity');
+    const el2 = document.getElementById('worst-time');
+    const el3 = document.getElementById('space-complexity');
+    const el4 = document.getElementById('stability');
+    if (el1) el1.textContent = info?.avg || 'O(?)';
+    if (el2) el2.textContent = info?.worst || 'O(?)';
+    if (el3) el3.textContent = info?.space || 'O(?)';
+    if (el4) el4.textContent = info?.stability || '?';
   });
 
   const codeContent = () => {
@@ -451,8 +374,8 @@ export default function Sorting() {
         <div class="visualization-header">
           <h1>排序算法</h1>
           <p class="description">
-            排序算法将无序的数据序列整理为有序序列。通过观察不同算法的比较和交换过程，
-            理解它们的时间复杂度和空间复杂度差异。
+            排序算法将无序的数据序列整理为有序序列。3D 可视化让你从多角度观察算法的执行过程。
+            <span class="hint">鼠标拖拽旋转视角 · 滚轮缩放</span>
           </p>
         </div>
 
@@ -462,10 +385,7 @@ export default function Sorting() {
             <Dropdown
               id="sort-algorithm"
               value={algorithm()}
-              onChange={(value) => {
-                setAlgorithm(value);
-                resetSort();
-              }}
+              onChange={(value) => { setAlgorithm(value); resetSort(); }}
               options={[
                 { label: '冒泡排序', value: 'bubble' },
                 { label: '选择排序', value: 'selection' },
@@ -484,23 +404,24 @@ export default function Sorting() {
             <input
               type="range"
               id="array-size"
-              min="10"
-              max="100"
+              min="5"
+              max="40"
               value={arraySize()}
-              onInput={(e) => {
-                setArraySize(parseInt(e.currentTarget.value));
-                generateArray();
-              }}
+              onInput={(e) => { setArraySize(parseInt(e.currentTarget.value)); generateArray(); }}
             />
             <span>{arraySize()}</span>
           </div>
         </div>
 
-        <div class="canvas-container canvas-container-enhanced">
-          <canvas
-            ref={el => { canvasRef = el; }}
-            style={{ width: '100%', height: '400px', display: 'block' }}
-          />
+        <div class="canvas-container canvas-container-3d">
+          <div ref={el => { containerRef = el; }} class="three-container" />
+          <div class="three-hint">
+            <span>3D VIEW</span>
+            <span class="three-hint-divider">·</span>
+            <span>拖拽旋转</span>
+            <span class="three-hint-divider">·</span>
+            <span>滚轮缩放</span>
+          </div>
         </div>
 
         <ControlPanel
@@ -522,11 +443,11 @@ export default function Sorting() {
           <div class="complexity">
             <div class="complexity-item">
               <div class="label">时间复杂度 (平均)</div>
-              <div class="value" id="time-complexity">O(n\u00B2)</div>
+              <div class="value" id="time-complexity">O(n²)</div>
             </div>
             <div class="complexity-item">
               <div class="label">时间复杂度 (最坏)</div>
-              <div class="value" id="worst-time">O(n\u00B2)</div>
+              <div class="value" id="worst-time">O(n²)</div>
             </div>
             <div class="complexity-item">
               <div class="label">空间复杂度</div>
