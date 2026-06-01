@@ -1,6 +1,7 @@
 import { createSignal, onMount } from 'solid-js';
 import { graphCodes, languageLabels, type Language } from '../utils/codeData';
 import Dropdown from '../components/Dropdown';
+import CodePanel from '../components/CodePanel';
 
 export default function Graph() {
   let canvasRef: HTMLCanvasElement;
@@ -446,24 +447,14 @@ export default function Graph() {
             </div>
           </div>
         )}
-        <div class="code-panel">
-          <div class="code-panel-header">
-            <h3>算法代码</h3>
-            <Dropdown
-              class="code-lang-select"
-              value={lang()}
-              onChange={(value) => setLang(value as Language)}
-              options={Object.entries(languageLabels).map(([key, label]) => ({ value: key, label }))}
-            />
-          </div>
-          <pre class="code-block"><code>{codeContent()}</code></pre>
-        </div>
         <div class="steps-panel">
           <h3>执行步骤</h3>
           <div>
             {steps().length === 0 ? <div class="step-item">点击"开始算法"查看执行过程</div> : steps().map(step => <div class="step-item active">{step}</div>)}
           </div>
         </div>
+
+        <CodePanel category="graph" algorithm={algorithm()} />
       </div>
     </main>
   );

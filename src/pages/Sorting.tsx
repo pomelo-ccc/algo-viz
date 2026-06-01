@@ -1,6 +1,7 @@
 import { createSignal, createEffect, onMount } from 'solid-js';
 import { sortingCodes, languageLabels, type Language } from '../utils/codeData';
 import Dropdown from '../components/Dropdown';
+import CodePanel from '../components/CodePanel';
 
 interface ComplexityInfo {
   avg: string;
@@ -432,6 +433,8 @@ export default function Sorting() {
             )}
           </div>
         </div>
+
+        <CodePanel category="sorting" algorithm={algorithm()} />
       </div>
     </main>
   );

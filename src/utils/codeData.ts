@@ -2672,3 +2672,431 @@ QueryPlan queryOptimization(int tables) {
 }`,
   },
 };
+
+export const dpCodes: Record<string, AlgorithmCode> = {
+  fibonacci: {
+    javascript: `function fibonacci(n) {
+  const dp = new Array(n + 1).fill(0);
+  dp[0] = 0;
+  dp[1] = 1;
+  for (let i = 2; i <= n; i++) {
+    dp[i] = dp[i - 1] + dp[i - 2];
+  }
+  return dp[n];
+}`,
+    typescript: `function fibonacci(n: number): number {
+  const dp = new Array(n + 1).fill(0);
+  dp[0] = 0; dp[1] = 1;
+  for (let i = 2; i <= n; i++) dp[i] = dp[i - 1] + dp[i - 2];
+  return dp[n];
+}`,
+    python: `def fibonacci(n):
+    dp = [0] * (n + 1)
+    dp[0], dp[1] = 0, 1
+    for i in range(2, n + 1):
+        dp[i] = dp[i-1] + dp[i-2]
+    return dp[n]`,
+    cpp: `int fibonacci(int n) {
+    vector<int> dp(n + 1);
+    dp[0] = 0; dp[1] = 1;
+    for (int i = 2; i <= n; i++) dp[i] = dp[i-1] + dp[i-2];
+    return dp[n];
+}`,
+    java: `public static int fibonacci(int n) {
+    int[] dp = new int[n + 1];
+    dp[0] = 0; dp[1] = 1;
+    for (int i = 2; i <= n; i++) dp[i] = dp[i-1] + dp[i-2];
+    return dp[n];
+}`,
+  },
+  knapsack: {
+    javascript: `function knapsack(weights, values, W) {
+  const n = weights.length;
+  const dp = Array(n + 1).fill(null).map(() => Array(W + 1).fill(0));
+  for (let i = 1; i <= n; i++) {
+    for (let w = 0; w <= W; w++) {
+      if (weights[i-1] <= w) {
+        dp[i][w] = Math.max(dp[i-1][w], dp[i-1][w-weights[i-1]] + values[i-1]);
+      } else {
+        dp[i][w] = dp[i-1][w];
+      }
+    }
+  }
+  return dp[n][W];
+}`,
+    typescript: `function knapsack(weights: number[], values: number[], W: number): number {
+  const n = weights.length;
+  const dp = Array(n + 1).fill(null).map(() => Array(W + 1).fill(0));
+  for (let i = 1; i <= n; i++) {
+    for (let w = 0; w <= W; w++) {
+      if (weights[i-1] <= w) dp[i][w] = Math.max(dp[i-1][w], dp[i-1][w-weights[i-1]] + values[i-1]);
+      else dp[i][w] = dp[i-1][w];
+    }
+  }
+  return dp[n][W];
+}`,
+    python: `def knapsack(weights, values, W):
+    n = len(weights)
+    dp = [[0] * (W + 1) for _ in range(n + 1)]
+    for i in range(1, n + 1):
+        for w in range(W + 1):
+            if weights[i-1] <= w:
+                dp[i][w] = max(dp[i-1][w], dp[i-1][w-weights[i-1]] + values[i-1])
+            else:
+                dp[i][w] = dp[i-1][w]
+    return dp[n][W]`,
+    cpp: `int knapsack(vector<int>& w, vector<int>& v, int W) {
+    int n = w.size();
+    vector<vector<int>> dp(n + 1, vector<int>(W + 1, 0));
+    for (int i = 1; i <= n; i++)
+        for (int j = 0; j <= W; j++)
+            if (w[i-1] <= j) dp[i][j] = max(dp[i-1][j], dp[i-1][j-w[i-1]] + v[i-1]);
+            else dp[i][j] = dp[i-1][j];
+    return dp[n][W];
+}`,
+    java: `public static int knapsack(int[] w, int[] v, int W) {
+    int n = w.length;
+    int[][] dp = new int[n + 1][W + 1];
+    for (int i = 1; i <= n; i++)
+        for (int j = 0; j <= W; j++)
+            if (w[i-1] <= j) dp[i][j] = Math.max(dp[i-1][j], dp[i-1][j-w[i-1]] + v[i-1]);
+            else dp[i][j] = dp[i-1][j];
+    return dp[n][W];
+}`,
+  },
+};
+
+export const pathfindingCodes: Record<string, AlgorithmCode> = {
+  astar: {
+    javascript: `function aStar(grid, start, end) {
+  const openSet = [start];
+  const closedSet = new Set();
+  const gScore = {};
+  const fScore = {};
+  gScore[start] = 0;
+  fScore[start] = heuristic(start, end);
+
+  while (openSet.length > 0) {
+    const current = openSet.reduce((a, b) => fScore[a] < fScore[b] ? a : b);
+    if (current === end) return reconstructPath(cameFrom, current);
+    openSet.splice(openSet.indexOf(current), 1);
+    closedSet.add(current);
+    for (const neighbor of getNeighbors(grid, current)) {
+      if (closedSet.has(neighbor)) continue;
+      const tentativeG = gScore[current] + 1;
+      if (!openSet.includes(neighbor)) openSet.push(neighbor);
+      else if (tentativeG >= gScore[neighbor]) continue;
+      cameFrom[neighbor] = current;
+      gScore[neighbor] = tentativeG;
+      fScore[neighbor] = tentativeG + heuristic(neighbor, end);
+    }
+  }
+  return null;
+}
+function heuristic(a, b) { return Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]); }`,
+    typescript: `interface Node { row: number; col: number; }
+function aStar(grid: number[][], start: Node, end: Node): Node[] | null {
+  const openSet: Node[] = [start];
+  const closedSet = new Set<string>();
+  const key = (n: Node) => \`\${n.row},\${n.col}\`;
+  const gScore = new Map<string, number>();
+  const fScore = new Map<string, number>();
+  gScore.set(key(start), 0);
+  fScore.set(key(start), heuristic(start, end));
+  while (openSet.length > 0) {
+    const current = openSet.reduce((a, b) => (fScore.get(key(a)) || Infinity) < (fScore.get(key(b)) || Infinity) ? a : b);
+    if (current.row === end.row && current.col === end.col) return reconstructPath(cameFrom, current);
+    openSet.splice(openSet.indexOf(current), 1);
+    closedSet.add(key(current));
+    for (const neighbor of getNeighbors(grid, current)) {
+      if (closedSet.has(key(neighbor))) continue;
+      const tentativeG = (gScore.get(key(current)) || 0) + 1;
+      if (!openSet.some(n => n.row === neighbor.row && n.col === neighbor.col)) openSet.push(neighbor);
+      else if (tentativeG >= (gScore.get(key(neighbor)) || Infinity)) continue;
+      cameFrom.set(key(neighbor), current);
+      gScore.set(key(neighbor), tentativeG);
+      fScore.set(key(neighbor), tentativeG + heuristic(neighbor, end));
+    }
+  }
+  return null;
+}
+function heuristic(a: Node, b: Node): number { return Math.abs(a.row - b.row) + Math.abs(a.col - b.col); }`,
+    python: `import heapq
+def a_star(grid, start, end):
+    open_set = [(0, start)]
+    came_from = {}
+    g_score = {start: 0}
+    while open_set:
+        _, current = heapq.heappop(open_set)
+        if current == end: return reconstruct_path(came_from, current)
+        for neighbor in get_neighbors(grid, current):
+            tentative_g = g_score[current] + 1
+            if neighbor not in g_score or tentative_g < g_score[neighbor]:
+                came_from[neighbor] = current
+                g_score[neighbor] = tentative_g
+                heapq.heappush(open_set, (tentative_g + heuristic(neighbor, end), neighbor))
+    return None`,
+    cpp: `struct Node { int row, col; };
+int heuristic(Node a, Node b) { return abs(a.row - b.row) + abs(a.col - b.col); }
+vector<Node> aStar(vector<vector<int>>& grid, Node start, Node end) {
+    priority_queue<pair<int, Node>, vector<pair<int, Node>>, greater<pair<int, Node>>> pq;
+    pq.push({heuristic(start, end), start});
+    unordered_map<string, Node> cameFrom;
+    unordered_map<string, int> gScore;
+    gScore[key(start)] = 0;
+    while (!pq.empty()) {
+        Node current = pq.top().second; pq.pop();
+        if (current.row == end.row && current.col == end.col) return reconstructPath(cameFrom, current);
+        for (Node neighbor : getNeighbors(grid, current)) {
+            int tentativeG = gScore[key(current)] + 1;
+            if (!gScore.count(key(neighbor)) || tentativeG < gScore[key(neighbor)]) {
+                cameFrom[key(neighbor)] = current;
+                gScore[key(neighbor)] = tentativeG;
+                pq.push({tentativeG + heuristic(neighbor, end), neighbor});
+            }
+        }
+    }
+    return {};
+}`,
+    java: `public static List<int[]> aStar(int[][] grid, int[] start, int[] end) {
+    PriorityQueue<int[]> pq = new PriorityQueue<>((a, b) -> {
+        int fA = heuristic(a, end) + gScore.getOrDefault(key(a), Integer.MAX_VALUE);
+        int fB = heuristic(b, end) + gScore.getOrDefault(key(b), Integer.MAX_VALUE);
+        return Integer.compare(fA, fB);
+    });
+    pq.add(start);
+    Map<String, int[]> cameFrom = new HashMap<>();
+    gScore.put(key(start), 0);
+    while (!pq.isEmpty()) {
+        int[] current = pq.poll();
+        if (current[0] == end[0] && current[1] == end[1]) return reconstructPath(cameFrom, current);
+        for (int[] neighbor : getNeighbors(grid, current)) {
+            int tentativeG = gScore.getOrDefault(key(current), Integer.MAX_VALUE) + 1;
+            if (!gScore.containsKey(key(neighbor)) || tentativeG < gScore.get(key(neighbor))) {
+                cameFrom.put(key(neighbor), current);
+                gScore.put(key(neighbor), tentativeG);
+                pq.add(neighbor);
+            }
+        }
+    }
+    return null;
+}`,
+  },
+};
+
+export const backtrackingCodes: Record<string, AlgorithmCode> = {
+  nqueens: {
+    javascript: `function solveNQueens(n) {
+  const board = Array(n).fill(null).map(() => Array(n).fill('.'));
+  const solutions = [];
+  function isValid(board, row, col) {
+    for (let i = 0; i < col; i++) if (board[row][i] === 'Q') return false;
+    for (let i = row, j = col; i >= 0 && j >= 0; i--, j--) if (board[i][j] === 'Q') return false;
+    for (let i = row, j = col; i < n && j >= 0; i++, j--) if (board[i][j] === 'Q') return false;
+    return true;
+  }
+  function solve(col) {
+    if (col >= n) { solutions.push(board.map(r => r.join(''))); return; }
+    for (let i = 0; i < n; i++) {
+      if (isValid(board, i, col)) { board[i][col] = 'Q'; solve(col + 1); board[i][col] = '.'; }
+    }
+  }
+  solve(0);
+  return solutions;
+}`,
+    typescript: `function solveNQueens(n: number): string[][] {
+  const board = Array(n).fill(null).map(() => Array(n).fill('.'));
+  const solutions: string[][] = [];
+  function isValid(board: string[][], row: number, col: number): boolean {
+    for (let i = 0; i < col; i++) if (board[row][i] === 'Q') return false;
+    for (let i = row, j = col; i >= 0 && j >= 0; i--, j--) if (board[i][j] === 'Q') return false;
+    for (let i = row, j = col; i < n && j >= 0; i++, j--) if (board[i][j] === 'Q') return false;
+    return true;
+  }
+  function solve(col: number): void {
+    if (col >= n) { solutions.push(board.map(r => r.join(''))); return; }
+    for (let i = 0; i < n; i++) {
+      if (isValid(board, i, col)) { board[i][col] = 'Q'; solve(col + 1); board[i][col] = '.'; }
+    }
+  }
+  solve(0);
+  return solutions;
+}`,
+    python: `def solve_n_queens(n):
+    board = [['.' for _ in range(n)] for _ in range(n)]
+    solutions = []
+    def is_valid(row, col):
+        for i in range(col):
+            if board[row][i] == 'Q': return False
+        for i, j in zip(range(row, -1, -1), range(col, -1, -1)):
+            if board[i][j] == 'Q': return False
+        for i, j in zip(range(row, n), range(col, -1, -1)):
+            if board[i][j] == 'Q': return False
+        return True
+    def solve(col):
+        if col >= n: solutions.append([''.join(row) for row in board]); return
+        for i in range(n):
+            if is_valid(i, col): board[i][col] = 'Q'; solve(col + 1); board[i][col] = '.'
+    solve(0)
+    return solutions`,
+    cpp: `class NQueens {
+public:
+    vector<vector<string>> solveNQueens(int n) {
+        vector<vector<string>> solutions;
+        vector<string> board(n, string(n, '.'));
+        solve(solutions, board, 0, n);
+        return solutions;
+    }
+private:
+    bool isValid(vector<string>& board, int row, int col, int n) {
+        for (int i = 0; i < col; i++) if (board[row][i] == 'Q') return false;
+        for (int i = row, j = col; i >= 0 && j >= 0; i--, j--) if (board[i][j] == 'Q') return false;
+        for (int i = row, j = col; i < n && j >= 0; i++, j--) if (board[i][j] == 'Q') return false;
+        return true;
+    }
+    void solve(vector<vector<string>>& solutions, vector<string>& board, int col, int n) {
+        if (col >= n) { solutions.push_back(board); return; }
+        for (int i = 0; i < n; i++) {
+            if (isValid(board, i, col, n)) { board[i][col] = 'Q'; solve(solutions, board, col + 1, n); board[i][col] = '.'; }
+        }
+    }
+};`,
+    java: `class NQueens {
+    public List<List<String>> solveNQueens(int n) {
+        List<List<String>> solutions = new ArrayList<>();
+        char[][] board = new char[n][n];
+        for (char[] row : board) Arrays.fill(row, '.');
+        solve(board, 0, n, solutions);
+        return solutions;
+    }
+    private void solve(char[][] board, int col, int n, List<List<String>> solutions) {
+        if (col >= n) { List<String> sol = new ArrayList<>(); for (char[] row : board) sol.add(new String(row)); solutions.add(sol); return; }
+        for (int i = 0; i < n; i++) {
+            if (isValid(board, i, col, n)) { board[i][col] = 'Q'; solve(board, col + 1, n, solutions); board[i][col] = '.'; }
+        }
+    }
+    private boolean isValid(char[][] board, int row, int col, int n) {
+        for (int i = 0; i < col; i++) if (board[row][i] == 'Q') return false;
+        for (int i = row, j = col; i >= 0 && j >= 0; i--, j--) if (board[i][j] == 'Q') return false;
+        for (int i = row, j = col; i < n && j >= 0; i++, j--) if (board[i][j] == 'Q') return false;
+        return true;
+    }
+}`,
+  },
+};
+
+export const greedyCodes: Record<string, AlgorithmCode> = {
+  activity: {
+    javascript: `function activitySelection(activities) {
+  activities.sort((a, b) => a.end - b.end);
+  const selected = [activities[0]];
+  let lastEnd = activities[0].end;
+  for (let i = 1; i < activities.length; i++) {
+    if (activities[i].start >= lastEnd) { selected.push(activities[i]); lastEnd = activities[i].end; }
+  }
+  return selected;
+}`,
+    typescript: `interface Activity { start: number; end: number; }
+function activitySelection(activities: Activity[]): Activity[] {
+  activities.sort((a, b) => a.end - b.end);
+  const selected = [activities[0]];
+  let lastEnd = activities[0].end;
+  for (let i = 1; i < activities.length; i++) {
+    if (activities[i].start >= lastEnd) { selected.push(activities[i]); lastEnd = activities[i].end; }
+  }
+  return selected;
+}`,
+    python: `def activity_selection(activities):
+    activities.sort(key=lambda x: x[1])
+    selected = [activities[0]]
+    last_end = activities[0][1]
+    for start, end in activities[1:]:
+        if start >= last_end: selected.append((start, end)); last_end = end
+    return selected`,
+    cpp: `vector<pair<int,int>> activitySelection(vector<pair<int,int>>& a) {
+    sort(a.begin(), a.end(), [](auto& x, auto& y){ return x.second < y.second; });
+    vector<pair<int,int>> selected = {a[0]};
+    int lastEnd = a[0].second;
+    for (auto& act : a) {
+        if (act.first >= lastEnd) { selected.push_back(act); lastEnd = act.second; }
+    }
+    return selected;
+}`,
+    java: `public static List<int[]> activitySelection(int[][] activities) {
+    Arrays.sort(activities, Comparator.comparingInt(a -> a[1]));
+    List<int[]> selected = new ArrayList<>();
+    selected.add(activities[0]);
+    int lastEnd = activities[0][1];
+    for (int[] act : activities) {
+        if (act[0] >= lastEnd) { selected.add(act); lastEnd = act[1]; }
+    }
+    return selected;
+}`,
+  },
+};
+
+export const divideConquerCodes: Record<string, AlgorithmCode> = {
+  mergeSort: {
+    javascript: `function mergeSort(arr) {
+  if (arr.length <= 1) return arr;
+  const mid = Math.floor(arr.length / 2);
+  const left = mergeSort(arr.slice(0, mid));
+  const right = mergeSort(arr.slice(mid));
+  return merge(left, right);
+}
+function merge(left, right) {
+  const result = [];
+  while (left.length && right.length) result.push(left[0] <= right[0] ? left.shift() : right.shift());
+  return [...result, ...left, ...right];
+}`,
+    typescript: `function mergeSort(arr: number[]): number[] {
+  if (arr.length <= 1) return arr;
+  const mid = Math.floor(arr.length / 2);
+  return merge(mergeSort(arr.slice(0, mid)), mergeSort(arr.slice(mid)));
+}
+function merge(left: number[], right: number[]): number[] {
+  const result: number[] = [];
+  while (left.length && right.length) result.push(left[0] <= right[0] ? left.shift()! : right.shift()!);
+  return [...result, ...left, ...right];
+}`,
+    python: `def merge_sort(arr):
+    if len(arr) <= 1: return arr
+    mid = len(arr) // 2
+    left = merge_sort(arr[:mid])
+    right = merge_sort(arr[mid:])
+    return merge(left, right)
+def merge(left, right):
+    result = []
+    while left and right: result.append(left.pop(0) if left[0] <= right[0] else right.pop(0))
+    return result + left + right`,
+    cpp: `void merge(vector<int>& arr, int l, int m, int r) {
+    vector<int> L(arr.begin()+l, arr.begin()+m+1), R(arr.begin()+m+1, arr.begin()+r+1);
+    int i = 0, j = 0, k = l;
+    while (i < L.size() && j < R.size()) arr[k++] = L[i] <= R[j] ? L[i++] : R[j++];
+    while (i < L.size()) arr[k++] = L[i++];
+    while (j < R.size()) arr[k++] = R[j++];
+}
+void mergeSort(vector<int>& arr, int l, int r) {
+    if (l >= r) return;
+    int m = l + (r - l) / 2;
+    mergeSort(arr, l, m);
+    mergeSort(arr, m + 1, r);
+    merge(arr, l, m, r);
+}`,
+    java: `public static void mergeSort(int[] arr, int l, int r) {
+    if (l >= r) return;
+    int m = l + (r - l) / 2;
+    mergeSort(arr, l, m);
+    mergeSort(arr, m + 1, r);
+    merge(arr, l, m, r);
+}
+private static void merge(int[] arr, int l, int m, int r) {
+    int[] L = Arrays.copyOfRange(arr, l, m + 1);
+    int[] R = Arrays.copyOfRange(arr, m + 1, r + 1);
+    int i = 0, j = 0, k = l;
+    while (i < L.length && j < R.length) arr[k++] = L[i] <= R[j] ? L[i++] : R[j++];
+    while (i < L.length) arr[k++] = L[i++];
+    while (j < R.length) arr[k++] = R[j++];
+}`,
+  },
+};

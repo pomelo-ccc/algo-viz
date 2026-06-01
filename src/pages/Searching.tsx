@@ -1,6 +1,7 @@
 import { createSignal, onMount } from 'solid-js';
 import { searchingCodes, languageLabels, type Language } from '../utils/codeData';
 import Dropdown from '../components/Dropdown';
+import CodePanel from '../components/CodePanel';
 
 export default function Searching() {
   let canvasRef: HTMLCanvasElement;
@@ -178,19 +179,6 @@ export default function Searching() {
           </div>
         </div>
 
-        <div class="code-panel">
-          <div class="code-panel-header">
-            <h3>算法代码</h3>
-            <Dropdown
-              class="code-lang-select"
-              value={lang()}
-              onChange={(value) => setLang(value as Language)}
-              options={Object.entries(languageLabels).map(([key, label]) => ({ value: key, label }))}
-            />
-          </div>
-          <pre class="code-block"><code>{codeContent()}</code></pre>
-        </div>
-
         <div class="steps-panel">
           <h3>执行步骤</h3>
           <div>
@@ -201,6 +189,8 @@ export default function Searching() {
             )}
           </div>
         </div>
+
+        <CodePanel category="searching" algorithm={algorithm()} />
       </div>
     </main>
   );
