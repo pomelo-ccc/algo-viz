@@ -1,21 +1,21 @@
-import { createSignal, onMount, onCleanup } from 'solid-js';
+import { createSignal, onMount, onCleanup, For, Show } from 'solid-js';
 import { graphCodes, languageLabels, type Language } from '../utils/codeData';
 import Dropdown from '../components/Dropdown';
 import CodePanel from '../components/CodePanel';
 import ControlPanel from '../components/ControlPanel';
 import { AnimationController, type AnimStep } from '../utils/animation';
+import { GraphVisualizer } from '../utils/three/GraphVisualizer';
+import { DARK_THEME, LIGHT_THEME } from '../utils/three/ThreeVisualizer';
 
 interface GraphNode {
   id: number;
-  x: number;
-  y: number;
   label: string;
 }
 
 interface GraphEdge {
   from: number;
   to: number;
-  weight?: number;
+  weight: number;
 }
 
 interface GraphState {
@@ -26,17 +26,16 @@ interface GraphState {
   queue: number[];
   mstEdges: GraphEdge[];
   topoOrder: number[];
-  distances?: number[];
 }
 
 export default function Graph() {
-  let canvasRef: HTMLCanvasElement;
-  let ctxRef: CanvasRenderingContext2D;
+  let containerRef: HTMLDivElement | undefined;
+  let visualizer: GraphVisualizer | undefined;
   let controller: AnimationController<GraphState>;
 
   const [activeTab, setActiveTab] = createSignal('traversal');
   const [algorithm, setAlgorithm] = createSignal('bfs');
-  const [nodeCount, setNodeCount] = createSignal(10);
+  const [nodeCount, setNodeCount] = createSignal(8);
   const [speed, setSpeed] = createSignal(50);
   const [isRunning, setIsRunning] = createSignal(false);
   const [steps, setSteps] = createSignal<string[]>([]);
@@ -54,13 +53,45 @@ export default function Graph() {
   });
 
   onMount(() => {
-    setupCanvas();
+    if (!containerRef) return;
+    visualizer = new GraphVisualizer(containerRef, {
+      cameraPosition: [0, 8, 14],
+      fov: 50,
+    });
+    const isDark = () => document.documentElement.getAttribute('data-theme') === 'dark';
+    visualizer.setTheme(isDark() ? DARK_THEME : LIGHT_THEME);
+    visualizer.start();
+
+    const observer = new MutationObserver(() => {
+      visualizer?.setTheme(isDark() ? DARK_THEME : LIGHT_THEME);
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
     generateGraph();
 
     controller = new AnimationController<GraphState>({ speed: speed() });
     controller.setCallbacks(
       (step: AnimStep<GraphState>) => {
         setState(step.state);
+        for (let i = 0; i < step.state.nodes.length; i++) {
+          const node = step.state.nodes[i];
+          if (!node) continue;
+          if (i === step.state.current) {
+            visualizer?.setNodeState(i, 'current');
+          } else if (step.state.visited.has(i)) {
+            visualizer?.setNodeState(i, 'visited');
+          } else if (step.state.queue.includes(i)) {
+            visualizer?.setNodeState(i, 'queue');
+          } else {
+            visualizer?.setNodeState(i, 'idle');
+          }
+        }
+        for (const e of step.state.edges) {
+          const isMst = step.state.mstEdges.some(m =>
+            (m.from === e.from && m.to === e.to) || (m.from === e.to && m.to === e.from)
+          );
+          visualizer?.setEdgeMst(e.from, e.to, isMst);
+        }
         setSteps(prev => [step.description, ...prev].slice(0, 30));
       },
       (s, index, total) => {
@@ -77,61 +108,28 @@ export default function Graph() {
         if (isRunning()) pause();
         else play();
       }
-      if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        controller.stepBackward();
-      }
-      if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        controller.stepForward();
-      }
-      if (e.key === 'r' || e.key === 'R') {
-        e.preventDefault();
-        reset();
-      }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); controller.stepBackward(); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); controller.stepForward(); }
+      if (e.key === 'r' || e.key === 'R') { e.preventDefault(); reset(); }
     };
     window.addEventListener('keydown', handleKeydown);
 
-    const handleResize = () => {
-      setupCanvas();
-      drawState(state());
-    };
-    window.addEventListener('resize', handleResize);
-
     onCleanup(() => {
       controller.destroy();
+      observer.disconnect();
       window.removeEventListener('keydown', handleKeydown);
-      window.removeEventListener('resize', handleResize);
+      visualizer?.stop();
     });
   });
-
-  const setupCanvas = () => {
-    if (!canvasRef) return;
-    ctxRef = canvasRef.getContext('2d')!;
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvasRef.getBoundingClientRect();
-    canvasRef.width = rect.width * dpr;
-    canvasRef.height = rect.height * dpr;
-    ctxRef.scale(dpr, dpr);
-  };
 
   const generateGraph = () => {
     controller?.reset();
     const n = nodeCount();
     const newNodes: GraphNode[] = [];
     const newEdges: GraphEdge[] = [];
-    const centerX = 350;
-    const centerY = 250;
-    const radius = Math.min(180, 80 + n * 8);
 
     for (let i = 0; i < n; i++) {
-      const angle = (i / n) * Math.PI * 2;
-      newNodes.push({
-        id: i,
-        x: centerX + Math.cos(angle) * radius,
-        y: centerY + Math.sin(angle) * radius,
-        label: String.fromCharCode(65 + i % 26),
-      });
+      newNodes.push({ id: i, label: String.fromCharCode(65 + i % 26) });
     }
 
     for (let i = 0; i < n - 1; i++) {
@@ -141,88 +139,24 @@ export default function Graph() {
         if (extra < n) newEdges.push({ from: i, to: extra, weight: Math.floor(Math.random() * 20) + 1 });
       }
     }
+    for (let i = 0; i < n; i++) {
+      const target = (i + 3) % n;
+      if (target !== i && !newEdges.some(e => (e.from === i && e.to === target) || (e.from === target && e.to === i))) {
+        if (Math.random() > 0.4) {
+          newEdges.push({ from: i, to: target, weight: Math.floor(Math.random() * 20) + 1 });
+        }
+      }
+    }
 
     const newState: GraphState = {
-      nodes: newNodes,
-      edges: newEdges,
-      visited: new Set(),
-      current: -1,
-      queue: [],
-      mstEdges: [],
-      topoOrder: [],
+      nodes: newNodes, edges: newEdges,
+      visited: new Set(), current: -1, queue: [], mstEdges: [], topoOrder: [],
     };
     setState(newState);
     setSteps([]);
     setCurrentStep(-1);
     setTotalSteps(0);
-    drawState(newState);
-  };
-
-  const drawState = (s: GraphState) => {
-    if (!ctxRef || s.nodes.length === 0) return;
-    const canvas = canvasRef;
-    const ctx = ctxRef;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    for (const edge of s.edges) {
-      const from = s.nodes[edge.from];
-      const to = s.nodes[edge.to];
-      if (!from || !to) continue;
-      const isMst = s.mstEdges.some(e =>
-        (e.from === edge.from && e.to === edge.to) || (e.from === edge.to && e.to === edge.from)
-      );
-      ctx.beginPath();
-      ctx.moveTo(from.x, from.y);
-      ctx.lineTo(to.x, to.y);
-      ctx.strokeStyle = isMst ? '#1a1a1a' : '#e5e5e5';
-      ctx.lineWidth = isMst ? 3 : 1;
-      ctx.stroke();
-      if (edge.weight !== undefined) {
-        const midX = (from.x + to.x) / 2;
-        const midY = (from.y + to.y) / 2;
-        ctx.fillStyle = isMst ? '#1a1a1a' : '#999999';
-        ctx.font = '11px monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText(String(edge.weight), midX, midY - 8);
-      }
-    }
-
-    for (let i = 0; i < s.nodes.length; i++) {
-      const node = s.nodes[i];
-      if (!node) continue;
-      ctx.beginPath();
-      ctx.arc(node.x, node.y, 20, 0, Math.PI * 2);
-
-      let color = '#ffffff';
-      let glow = false;
-      if (i === s.current) {
-        color = '#1a1a1a';
-        glow = true;
-      } else if (s.visited.has(i)) {
-        color = '#666666';
-      } else if (s.queue.includes(i)) {
-        color = '#999999';
-      }
-
-      if (glow) {
-        ctx.shadowColor = color;
-        ctx.shadowBlur = 12;
-      } else {
-        ctx.shadowBlur = 0;
-      }
-      ctx.fillStyle = color;
-      ctx.fill();
-      ctx.shadowBlur = 0;
-      ctx.strokeStyle = '#cccccc';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      ctx.fillStyle = (i === s.current || s.visited.has(i)) ? '#ffffff' : '#1a1a1a';
-      ctx.font = '14px monospace';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(node.label, node.x, node.y);
-    }
+    visualizer?.setGraph(newNodes, newEdges);
   };
 
   const getNeighbors = (nodeIndex: number, edgeList: GraphEdge[]): number[] => {
@@ -240,18 +174,15 @@ export default function Graph() {
     if (algo === 'bfs') {
       const visited = new Set<number>();
       const queue: number[] = [0];
-      const workingEdges = g.edges;
-
-      steps.push({ state: { ...g, visited: new Set(), queue: [0], current: 0 }, description: '起点 A 加入队列' });
+      steps.push({ state: { ...g, queue: [0], current: 0 }, description: `起点 ${g.nodes[0].label} 加入队列` });
 
       while (queue.length > 0) {
         const current = queue.shift()!;
         if (visited.has(current)) continue;
         visited.add(current);
-
         steps.push({ state: { ...g, visited: new Set(visited), queue: [...queue], current }, description: `访问节点 ${g.nodes[current].label}` });
 
-        const neighbors = getNeighbors(current, workingEdges);
+        const neighbors = getNeighbors(current, g.edges);
         for (const n of neighbors) {
           if (!visited.has(n) && !queue.includes(n)) {
             queue.push(n);
@@ -263,14 +194,12 @@ export default function Graph() {
     } else if (algo === 'dfs') {
       const visited = new Set<number>();
       const stack: number[] = [0];
-
-      steps.push({ state: { ...g, visited: new Set(), queue: [0], current: 0 }, description: '起点 A 入栈' });
+      steps.push({ state: { ...g, queue: [0], current: 0 }, description: `起点 ${g.nodes[0].label} 入栈` });
 
       while (stack.length > 0) {
         const current = stack.pop()!;
         if (visited.has(current)) continue;
         visited.add(current);
-
         steps.push({ state: { ...g, visited: new Set(visited), queue: [...stack], current }, description: `访问节点 ${g.nodes[current].label}` });
 
         const neighbors = getNeighbors(current, g.edges);
@@ -287,20 +216,17 @@ export default function Graph() {
       const visited = new Set<number>();
       const distances = new Array(g.nodes.length).fill(Infinity);
       distances[0] = 0;
-
-      steps.push({ state: { ...g, visited: new Set(), queue: [0], current: 0 }, description: '起点 A 距离为 0' });
+      steps.push({ state: { ...g, queue: [0], current: 0 }, description: `起点 ${g.nodes[0].label} 距离为 0` });
 
       while (visited.size < g.nodes.length) {
         let current = -1, minDist = Infinity;
         for (let i = 0; i < g.nodes.length; i++) {
           if (!visited.has(i) && distances[i] < minDist) {
-            minDist = distances[i];
-            current = i;
+            minDist = distances[i]; current = i;
           }
         }
         if (current === -1) break;
         visited.add(current);
-
         steps.push({ state: { ...g, visited: new Set(visited), queue: [], current }, description: `选择 ${g.nodes[current].label} (距离 ${minDist})` });
 
         const neighbors = getNeighbors(current, g.edges);
@@ -319,7 +245,6 @@ export default function Graph() {
       const sortedEdges = [...g.edges].sort((a, b) => (a.weight || 0) - (b.weight || 0));
       const parent = g.nodes.map((_, i) => i);
       const mst: GraphEdge[] = [];
-
       const find = (x: number): number => parent[x] === x ? x : (parent[x] = find(parent[x]));
       const union = (x: number, y: number) => { parent[find(x)] = find(y); };
 
@@ -341,8 +266,7 @@ export default function Graph() {
     } else if (algo === 'prim') {
       const visited = new Set<number>([0]);
       const mst: GraphEdge[] = [];
-
-      steps.push({ state: { ...g, visited: new Set(visited), current: 0 }, description: 'Prim: 从节点 A 开始' });
+      steps.push({ state: { ...g, visited: new Set(visited), current: 0 }, description: `Prim: 从节点 ${g.nodes[0].label} 开始` });
 
       while (visited.size < g.nodes.length) {
         let minEdge: GraphEdge | null = null;
@@ -358,11 +282,9 @@ export default function Graph() {
           }
         }
         if (!minEdge) break;
-
         const newNode = visited.has(minEdge.from) ? minEdge.to : minEdge.from;
         visited.add(newNode);
         mst.push(minEdge);
-
         steps.push({ state: { ...g, visited: new Set(visited), mstEdges: [...mst], current: newNode }, description: `添加边 ${g.nodes[minEdge.from].label}-${g.nodes[minEdge.to].label} (权重 ${minEdge.weight})` });
       }
       steps.push({ state: { ...g, visited: new Set(visited), mstEdges: [...mst], current: -1 }, description: `Prim 完成: MST 包含 ${mst.length} 条边` });
@@ -375,14 +297,12 @@ export default function Graph() {
       }
       const order: number[] = [];
       const visited = new Set<number>();
-
       steps.push({ state: { ...g, queue: [...queue], current: -1 }, description: '入度为 0 的节点入队' });
 
       while (queue.length > 0) {
         const current = queue.shift()!;
         visited.add(current);
         order.push(current);
-
         steps.push({ state: { ...g, visited: new Set(visited), queue: [...queue], current, topoOrder: [...order] }, description: `访问 ${g.nodes[current].label}, 顺序: ${order.map(i => g.nodes[i].label).join(' → ')}` });
 
         for (const edge of g.edges) {
@@ -395,12 +315,7 @@ export default function Graph() {
           }
         }
       }
-
-      if (order.length < g.nodes.length) {
-        steps.push({ state: { ...g, visited: new Set(visited), queue: [], current: -1, topoOrder: [...order] }, description: '图中存在环, 无法完成拓扑排序' });
-      } else {
-        steps.push({ state: { ...g, visited: new Set(visited), queue: [], current: -1, topoOrder: [...order] }, description: '拓扑排序完成' });
-      }
+      steps.push({ state: { ...g, visited: new Set(visited), queue: [], current: -1, topoOrder: [...order] }, description: order.length < g.nodes.length ? '图中存在环' : '拓扑排序完成' });
     }
 
     return steps;
@@ -410,19 +325,11 @@ export default function Graph() {
     if (isRunning()) return;
     setIsRunning(true);
     setSteps([]);
-
     const freshState: GraphState = {
-      nodes: state().nodes,
-      edges: state().edges,
-      visited: new Set(),
-      current: -1,
-      queue: [],
-      mstEdges: [],
-      topoOrder: [],
+      nodes: state().nodes, edges: state().edges,
+      visited: new Set(), current: -1, queue: [], mstEdges: [], topoOrder: [],
     };
     setState(freshState);
-    drawState(freshState);
-
     const animSteps = buildSteps(freshState, algorithm());
     controller.setSteps(animSteps);
     controller.setSpeed(speed());
@@ -433,25 +340,11 @@ export default function Graph() {
   };
 
   const play = () => {
-    if (controller.isAtEnd() || controller.isEmpty()) {
-      start();
-    } else {
-      setIsRunning(true);
-      controller.play().then(() => setIsRunning(false));
-    }
+    if (controller.isAtEnd() || controller.isEmpty()) start();
+    else { setIsRunning(true); controller.play().then(() => setIsRunning(false)); }
   };
-
-  const pause = () => {
-    controller.pause();
-    setIsRunning(false);
-  };
-
-  const reset = () => {
-    controller.pause();
-    setIsRunning(false);
-    generateGraph();
-  };
-
+  const pause = () => { controller.pause(); setIsRunning(false); };
+  const reset = () => { controller.pause(); setIsRunning(false); generateGraph(); };
   const handleStepForward = () => { if (!isRunning()) controller.stepForward(); };
   const handleStepBackward = () => { if (!isRunning()) controller.stepBackward(); };
   const handleSpeedChange = (newSpeed: number) => { setSpeed(newSpeed); controller.setSpeed(newSpeed); };
@@ -468,16 +361,12 @@ export default function Graph() {
         { label: '广度优先搜索', value: 'bfs' },
         { label: '深度优先搜索', value: 'dfs' },
       ];
-      case 'shortest': return [
-        { label: 'Dijkstra', value: 'dijkstra' },
-      ];
+      case 'shortest': return [{ label: 'Dijkstra', value: 'dijkstra' }];
       case 'mst': return [
         { label: 'Kruskal', value: 'kruskal' },
         { label: 'Prim', value: 'prim' },
       ];
-      case 'topo': return [
-        { label: '拓扑排序', value: 'topo' },
-      ];
+      case 'topo': return [{ label: '拓扑排序', value: 'topo' }];
       default: return [];
     }
   };
@@ -494,27 +383,20 @@ export default function Graph() {
       <div class="container">
         <div class="visualization-header">
           <h1>图算法</h1>
-          <p class="description">图是由节点和边组成的数据结构, 广泛应用于路径规划、社交网络分析、网络设计等领域。</p>
+          <p class="description">
+            图是由节点和边组成的非线性数据结构, 广泛应用于路径规划、社交网络分析、网络设计等领域。
+            <span class="hint">3D 力导向布局 · 拖拽旋转 · 鼠标悬停查看节点</span>
+          </p>
         </div>
-        <div style={{ display: 'flex', gap: '0', 'border-bottom': '1px solid var(--border)', 'margin-bottom': '2rem' }}>
-          {tabs.map(tab => (
-            <div
-              class="graph-tab"
-              style={{
-                padding: '0.75rem 1.5rem',
-                cursor: 'pointer',
-                'font-size': '0.85rem',
-                'text-transform': 'uppercase',
-                'letter-spacing': '0.05em',
-                color: activeTab() === tab.id ? 'var(--text-primary)' : 'var(--text-secondary)',
-                'border-bottom': activeTab() === tab.id ? '1px solid var(--text-primary)' : '1px solid transparent',
-                'margin-bottom': '-1px',
-              }}
+        <div class="graph-tabs">
+          <For each={tabs}>{tab => (
+            <button
+              class={`graph-tab ${activeTab() === tab.id ? 'active' : ''}`}
               onClick={() => { setActiveTab(tab.id); reset(); }}
             >
               {tab.label}
-            </div>
-          ))}
+            </button>
+          )}</For>
         </div>
         <div class="controls">
           <div class="controls-group">
@@ -527,12 +409,19 @@ export default function Graph() {
           </div>
           <div class="controls-group">
             <label>节点数量</label>
-            <input type="range" min="5" max="20" value={nodeCount()} onInput={e => { setNodeCount(parseInt(e.currentTarget.value)); generateGraph(); }} />
+            <input type="range" min="5" max="15" value={nodeCount()} onInput={e => { setNodeCount(parseInt(e.currentTarget.value)); generateGraph(); }} />
             <span>{nodeCount()}</span>
           </div>
         </div>
-        <div class="canvas-container canvas-container-enhanced">
-          <canvas ref={el => canvasRef = el} style={{ width: '100%', height: '500px', display: 'block' }} />
+        <div class="canvas-container canvas-container-3d">
+          <div ref={el => { containerRef = el; }} class="three-container" />
+          <div class="three-hint">
+            <span>3D VIEW</span>
+            <span class="three-hint-divider">·</span>
+            <span>拖拽旋转</span>
+            <span class="three-hint-divider">·</span>
+            <span>滚轮缩放</span>
+          </div>
         </div>
         <ControlPanel
           isRunning={isRunning()}
@@ -548,7 +437,7 @@ export default function Graph() {
           onGenerate={generateGraph}
         />
 
-        {activeTab() === 'mst' && state().mstEdges.length > 0 && (
+        <Show when={activeTab() === 'mst' && state().mstEdges.length > 0}>
           <div class="info-panel">
             <h3>最小生成树</h3>
             <div class="complexity">
@@ -556,26 +445,24 @@ export default function Graph() {
               <div class="complexity-item"><div class="label">总权重</div><div class="value">{state().mstEdges.reduce((sum, e) => sum + (e.weight || 0), 0)}</div></div>
             </div>
           </div>
-        )}
+        </Show>
 
-        {activeTab() === 'topo' && state().topoOrder.length > 0 && (
+        <Show when={activeTab() === 'topo' && state().topoOrder.length > 0}>
           <div class="info-panel">
             <h3>拓扑排序结果</h3>
-            <div style={{ display: 'flex', gap: '0.5rem', 'flex-wrap': 'wrap' }}>
-              {state().topoOrder.map((idx, i) => (
-                <div style={{ display: 'flex', 'align-items': 'center', gap: '0.5rem' }}>
-                  <div style={{
-                    width: '40px', height: '40px', 'border-radius': '50%',
-                    background: '#1a1a1a', color: '#fff', display: 'flex',
-                    'align-items': 'center', 'justify-content': 'center',
-                    'font-family': 'var(--font-mono)', 'font-size': '0.85rem',
-                  }}>{state().nodes[idx]?.label}</div>
-                  {i < state().topoOrder.length - 1 && <span style={{ color: 'var(--text-secondary)' }}>→</span>}
-                </div>
-              ))}
+            <div class="topo-order">
+              <For each={state().topoOrder}>{(idx, i) => (
+                <>
+                  <div class="topo-node">{state().nodes[idx]?.label}</div>
+                  <Show when={i() < state().topoOrder.length - 1}>
+                    <span class="topo-arrow">→</span>
+                  </Show>
+                </>
+              )}</For>
             </div>
           </div>
-        )}
+        </Show>
+
         <div class="steps-panel">
           <h3>执行步骤</h3>
           <div>
