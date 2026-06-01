@@ -167,11 +167,48 @@ export default function Home() {
     <main>
       <section class="hero">
         <div class="container">
-          <h1>算法可视化</h1>
-          <p class="hero-subtitle">
+          <h1 class="fade-in-up">算法可视化</h1>
+          <p class="hero-subtitle fade-in-up" style={{ 'animation-delay': '0.1s' }}>
             通过直观的视觉呈现，深入理解算法的运作原理。
             每个算法都被分解为可观察的步骤，帮助你在安静、无干扰的环境中专注于学习。
           </p>
+          <div class="hero-features fade-in-up" style={{ 'animation-delay': '0.2s', display: 'flex', gap: '2rem', 'margin-top': '2rem', 'flex-wrap': 'wrap' }}>
+            <div class="hero-feature">
+              <span class="hero-feature-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="5 3 19 12 5 21 5 3" />
+                </svg>
+              </span>
+              <span>逐步执行</span>
+            </div>
+            <div class="hero-feature">
+              <span class="hero-feature-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="9 11 12 14 22 4" />
+                  <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+                </svg>
+              </span>
+              <span>单步回退</span>
+            </div>
+            <div class="hero-feature">
+              <span class="hero-feature-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
+              </span>
+              <span>速度控制</span>
+            </div>
+            <div class="hero-feature">
+              <span class="hero-feature-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                </svg>
+              </span>
+              <span>5 种语言</span>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -189,9 +226,9 @@ export default function Home() {
             }}>
               {cat.title}
             </h2>
-            <div class="algorithm-grid">
+            <div class="algorithm-grid fade-in-stagger">
               {cat.items.map(algo => (
-                <A href={algo.path} class="algorithm-card fade-in">
+                <A href={algo.path} class="algorithm-card">
                   <h3>{algo.title}</h3>
                   <p>{algo.desc}</p>
                 </A>

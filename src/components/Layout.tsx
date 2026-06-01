@@ -1,6 +1,8 @@
 import { createSignal, onMount, onCleanup } from 'solid-js';
 import { A, useLocation } from '@solidjs/router';
 import type { JSX } from 'solid-js';
+import ThemeToggle from './ThemeToggle';
+import ScrollToTop from './ScrollToTop';
 
 const navItems = [
   { path: '/', label: '首页' },
@@ -73,18 +75,21 @@ export default function Layout(props: LayoutProps) {
               <line x1="3" y1="18" x2="21" y2="18" />
             </svg>
           </button>
-          <nav class={`site-nav ${menuOpen() ? 'open' : ''}`}>
-            {navItems.map(item => (
-              <A
-                href={item.path}
-                class={location.pathname === item.path ? 'active' : ''}
-                end
-                onClick={() => setMenuOpen(false)}
-              >
-                {item.label}
-              </A>
-            ))}
-          </nav>
+          <div style={{ display: 'flex', 'align-items': 'center' }}>
+            <nav class={`site-nav ${menuOpen() ? 'open' : ''}`}>
+              {navItems.slice(0, 5).map(item => (
+                <A
+                  href={item.path}
+                  class={location.pathname === item.path ? 'active' : ''}
+                  end
+                  onClick={() => setMenuOpen(false)}
+                >
+                  {item.label}
+                </A>
+              ))}
+            </nav>
+            <ThemeToggle />
+          </div>
         </div>
       </header>
       <div class="main-content">
@@ -95,6 +100,7 @@ export default function Layout(props: LayoutProps) {
           <p>Algorithm Visualizer - 极简主义算法学习工具 <span class="shortcut-hint">按 <kbd>?</kbd> 查看快捷键</span></p>
         </div>
       </footer>
+      <ScrollToTop />
       {showShortcuts() && (
         <div class="shortcuts-overlay" onClick={() => setShowShortcuts(false)}>
           <div class="shortcuts-modal" onClick={e => e.stopPropagation()}>
@@ -103,6 +109,11 @@ export default function Layout(props: LayoutProps) {
               <div class="shortcut-item">
                 <kbd>Space</kbd>
                 <span>播放 / 暂停</span>
+              </div>
+              <div class="shortcut-item">
+                <kbd>←</kbd>
+                <kbd>→</kbd>
+                <span>上一步 / 下一步</span>
               </div>
               <div class="shortcut-item">
                 <kbd>R</kbd>
