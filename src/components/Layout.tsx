@@ -1,4 +1,4 @@
-import { createSignal } from 'solid-js';
+import { createSignal, onMount, onCleanup } from 'solid-js';
 import { A, useLocation } from '@solidjs/router';
 import type { JSX } from 'solid-js';
 
@@ -40,6 +40,22 @@ interface LayoutProps {
 export default function Layout(props: LayoutProps) {
   const location = useLocation();
   const [menuOpen, setMenuOpen] = createSignal(false);
+  const [showShortcuts, setShowShortcuts] = createSignal(false);
+
+  onMount(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === '?') {
+        e.preventDefault();
+        setShowShortcuts(prev => !prev);
+      }
+      if (e.key === 'Escape') {
+        setMenuOpen(false);
+        setShowShortcuts(false);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    onCleanup(() => window.removeEventListener('keydown', handler));
+  });
 
   return (
     <div>
@@ -76,9 +92,38 @@ export default function Layout(props: LayoutProps) {
       </div>
       <footer class="site-footer">
         <div class="container">
-          <p>Algorithm Visualizer - 极简主义算法学习工具</p>
+          <p>Algorithm Visualizer - 极简主义算法学习工具 <span class="shortcut-hint">按 <kbd>?</kbd> 查看快捷键</span></p>
         </div>
       </footer>
+      {showShortcuts() && (
+        <div class="shortcuts-overlay" onClick={() => setShowShortcuts(false)}>
+          <div class="shortcuts-modal" onClick={e => e.stopPropagation()}>
+            <h3>键盘快捷键</h3>
+            <div class="shortcuts-list">
+              <div class="shortcut-item">
+                <kbd>Space</kbd>
+                <span>播放 / 暂停</span>
+              </div>
+              <div class="shortcut-item">
+                <kbd>R</kbd>
+                <span>重置</span>
+              </div>
+              <div class="shortcut-item">
+                <kbd>1-9</kbd>
+                <span>调整速度</span>
+              </div>
+              <div class="shortcut-item">
+                <kbd>Esc</kbd>
+                <span>关闭弹窗</span>
+              </div>
+              <div class="shortcut-item">
+                <kbd>?</kbd>
+                <span>显示/隐藏此面板</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
