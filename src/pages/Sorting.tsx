@@ -1,7 +1,10 @@
-import { createSignal, createEffect, onMount } from 'solid-js';
+import { createSignal, createEffect, onMount, onCleanup } from 'solid-js';
 import { sortingCodes, languageLabels, type Language } from '../utils/codeData';
 import Dropdown from '../components/Dropdown';
 import CodePanel from '../components/CodePanel';
+import ControlPanel from '../components/ControlPanel';
+import { DoubleBufferedRenderer, createSortingRenderer, type RenderState } from '../utils/canvasRenderer';
+import { AnimationController, type AnimStep } from '../utils/animation';
 
 interface ComplexityInfo {
   avg: string;
@@ -24,7 +27,8 @@ const complexityMap: Record<string, ComplexityInfo> = {
 
 export default function Sorting() {
   let canvasRef: HTMLCanvasElement;
-  let ctxRef: CanvasRenderingContext2D;
+  let renderer: DoubleBufferedRenderer;
+  let controller: AnimationController<number[]>;
   const [algorithm, setAlgorithm] = createSignal('bubble');
   const [arraySize, setArraySize] = createSignal(50);
   const [speed, setSpeed] = createSignal(50);
@@ -32,276 +36,398 @@ export default function Sorting() {
   const [steps, setSteps] = createSignal<string[]>([]);
   const [lang, setLang] = createSignal<Language>('javascript');
   const [array, setArray] = createSignal<number[]>([]);
+  const [currentStep, setCurrentStep] = createSignal(-1);
+  const [totalSteps, setTotalSteps] = createSignal(0);
 
   onMount(() => {
-    ctxRef = canvasRef.getContext('2d')!;
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvasRef.getBoundingClientRect();
-    canvasRef.width = rect.width * dpr;
-    canvasRef.height = rect.height * dpr;
-    ctxRef.scale(dpr, dpr);
+    renderer = createSortingRenderer(canvasRef);
+    controller = new AnimationController<number[]>({ speed: speed() });
+    controller.setCallbacks(
+      (step: AnimStep<number[]>) => {
+        const arr = step.state;
+        renderer.render({
+          array: arr,
+          comparing: step.compare || [],
+          swapping: step.swap ? [step.swap[0], step.swap[1]] : [],
+          sorted: step.sorted || [],
+        });
+
+        if (step.swap) {
+          const barWidth = canvasRef.getBoundingClientRect().width / arr.length;
+          const x = (step.swap[0] + 0.5) * barWidth;
+          const height = canvasRef.getBoundingClientRect().height;
+          renderer.emitParticles(x, height - 100, 12, '#1a1a1a');
+        }
+
+        setSteps(prev => [step.description, ...prev].slice(0, 30));
+      },
+      (state, index, total) => {
+        setCurrentStep(index);
+        setTotalSteps(total);
+      }
+    );
+
     generateArray();
-    window.addEventListener('resize', () => {
-      const rect = canvasRef.getBoundingClientRect();
-      canvasRef.width = rect.width * dpr;
-      canvasRef.height = rect.height * dpr;
-      ctxRef.scale(dpr, dpr);
-      drawArray(array(), [], [], []);
+
+    const handleResize = () => renderer.resize();
+    window.addEventListener('resize', handleResize);
+
+    const handleKeydown = (e: KeyboardEvent) => {
+      if (e.key === ' ' || e.key === 'Space') {
+        e.preventDefault();
+        if (isRunning()) pauseSort();
+        else playSort();
+      }
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        controller.stepBackward();
+      }
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        controller.stepForward();
+      }
+      if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault();
+        resetSort();
+      }
+    };
+    window.addEventListener('keydown', handleKeydown);
+
+    onCleanup(() => {
+      controller.destroy();
+      renderer.destroy();
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('keydown', handleKeydown);
     });
   });
 
   const generateArray = () => {
     const arr: number[] = [];
     for (let i = 0; i < arraySize(); i++) {
-      arr.push(Math.floor(Math.random() * 90) + 10);
+      arr.push(Math.floor(Math.random() * 85) + 15);
     }
     setArray(arr);
-    drawArray(arr, [], [], []);
+    controller.reset();
+    controller.setSteps([]);
     setSteps([]);
+    setCurrentStep(-1);
+    setTotalSteps(0);
+    renderer.render({ array: arr, comparing: [], swapping: [], sorted: [] });
   };
 
-  const drawArray = (arr: number[], comparing: number[] = [], swapping: number[] = [], sorted: number[] = []) => {
-    if (!ctxRef || arr.length === 0) return;
-    const canvas = canvasRef;
-    const ctx = ctxRef;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const barWidth = canvas.width / arr.length;
-    const maxValue = Math.max(...arr, 100);
+  const buildSteps = (arr: number[], algo: string) => {
+    const workingArr = [...arr];
+    const steps: AnimStep<number[]>[] = [];
 
-    for (let i = 0; i < arr.length; i++) {
-      const barHeight = (arr[i] / maxValue) * (canvas.height - 40);
-      const x = i * barWidth;
-      const y = canvas.height - barHeight - 20;
+    switch (algo) {
+      case 'bubble':
+        for (let i = 0; i < workingArr.length - 1; i++) {
+          for (let j = 0; j < workingArr.length - i - 1; j++) {
+            steps.push({
+              state: [...workingArr],
+              description: `比较 ${workingArr[j]} 和 ${workingArr[j + 1]}`,
+              compare: [j, j + 1],
+            });
+            if (workingArr[j] > workingArr[j + 1]) {
+              [workingArr[j], workingArr[j + 1]] = [workingArr[j + 1], workingArr[j]];
+              steps.push({
+                state: [...workingArr],
+                description: `交换 ${workingArr[j + 1]} 和 ${workingArr[j]}`,
+                swap: [j, j + 1],
+              });
+            }
+          }
+          steps.push({
+            state: [...workingArr],
+            description: `位置 ${workingArr.length - i - 1} 已排序`,
+            sorted: Array.from({ length: i + 1 }, (_, k) => workingArr.length - 1 - k),
+          });
+        }
+        break;
 
-      if (sorted.includes(i)) ctx.fillStyle = '#e5e5e5';
-      else if (comparing.includes(i)) ctx.fillStyle = '#666666';
-      else if (swapping.includes(i)) ctx.fillStyle = '#1a1a1a';
-      else ctx.fillStyle = '#cccccc';
-      ctx.fillRect(x + 1, y, barWidth - 2, barHeight);
+      case 'selection':
+        for (let i = 0; i < workingArr.length - 1; i++) {
+          let minIdx = i;
+          for (let j = i + 1; j < workingArr.length; j++) {
+            steps.push({
+              state: [...workingArr],
+              description: `查找最小值: 比较 ${workingArr[j]} 和 ${workingArr[minIdx]}`,
+              compare: [j, minIdx],
+            });
+            if (workingArr[j] < workingArr[minIdx]) minIdx = j;
+          }
+          if (minIdx !== i) {
+            [workingArr[i], workingArr[minIdx]] = [workingArr[minIdx], workingArr[i]];
+            steps.push({
+              state: [...workingArr],
+              description: `交换 ${workingArr[minIdx]} 到位置 ${i}`,
+              swap: [i, minIdx],
+            });
+          }
+          steps.push({
+            state: [...workingArr],
+            description: `位置 ${i} 已排序`,
+            sorted: [i],
+          });
+        }
+        break;
+
+      case 'insertion':
+        for (let i = 1; i < workingArr.length; i++) {
+          const key = workingArr[i];
+          let j = i - 1;
+          while (j >= 0 && workingArr[j] > key) {
+            workingArr[j + 1] = workingArr[j];
+            steps.push({
+              state: [...workingArr],
+              description: `移动 ${workingArr[j]} 到位置 ${j + 1}`,
+              swap: [j, j + 1],
+            });
+            j--;
+          }
+          workingArr[j + 1] = key;
+          if (j + 1 !== i) {
+            steps.push({
+              state: [...workingArr],
+              description: `插入 ${key} 到位置 ${j + 1}`,
+            });
+          }
+        }
+        break;
+
+      case 'quick':
+        const quickSteps: AnimStep<number[]>[] = [];
+        const partitionQuick = (arr: number[], low: number, high: number): number => {
+          const pivot = arr[high];
+          let i = low - 1;
+          for (let j = low; j < high; j++) {
+            quickSteps.push({
+              state: [...arr],
+              description: `比较 ${arr[j]} 和 pivot ${pivot}`,
+              compare: [j, high],
+              pivot: high,
+            });
+            if (arr[j] < pivot) {
+              i++;
+              [arr[i], arr[j]] = [arr[j], arr[i]];
+              if (i !== j) {
+                quickSteps.push({
+                  state: [...arr],
+                  description: `交换 ${arr[i]} 和 ${arr[j]}`,
+                  swap: [i, j],
+                });
+              }
+            }
+          }
+          [arr[i + 1], arr[high]] = [arr[high], arr[i + 1]];
+          quickSteps.push({
+            state: [...arr],
+            description: `pivot ${pivot} 放置到位置 ${i + 1}`,
+            swap: [i + 1, high],
+            sorted: [i + 1],
+          });
+          return i + 1;
+        };
+        const quickSort = (arr: number[], low: number, high: number) => {
+          if (low < high) {
+            const pi = partitionQuick(arr, low, high);
+            quickSort(arr, low, pi - 1);
+            quickSort(arr, pi + 1, high);
+          }
+        };
+        quickSort(workingArr, 0, workingArr.length - 1);
+        steps.push(...quickSteps);
+        break;
+
+      case 'merge':
+        const mergeSteps: AnimStep<number[]>[] = [];
+        const merge = (arr: number[], l: number, m: number, r: number) => {
+          const left = arr.slice(l, m + 1);
+          const right = arr.slice(m + 1, r + 1);
+          let i = 0, j = 0, k = l;
+          while (i < left.length && j < right.length) {
+            mergeSteps.push({
+              state: [...arr],
+              description: `合并: 比较 ${left[i]} 和 ${right[j]}`,
+              compare: [l + i, m + 1 + j],
+            });
+            if (left[i] <= right[j]) {
+              arr[k] = left[i++];
+            } else {
+              arr[k] = right[j++];
+            }
+            mergeSteps.push({
+              state: [...arr],
+              description: `放置 ${arr[k]} 到位置 ${k}`,
+              sorted: [k],
+            });
+            k++;
+          }
+          while (i < left.length) {
+            arr[k] = left[i++];
+            mergeSteps.push({ state: [...arr], description: `放置剩余元素`, sorted: [k] });
+            k++;
+          }
+          while (j < right.length) {
+            arr[k] = right[j++];
+            mergeSteps.push({ state: [...arr], description: `放置剩余元素`, sorted: [k] });
+            k++;
+          }
+        };
+        const mergeSort = (arr: number[], l: number, r: number) => {
+          if (l < r) {
+            const m = Math.floor((l + r) / 2);
+            mergeSort(arr, l, m);
+            mergeSort(arr, m + 1, r);
+            merge(arr, l, m, r);
+          }
+        };
+        mergeSort(workingArr, 0, workingArr.length - 1);
+        steps.push(...mergeSteps);
+        break;
+
+      case 'heap':
+        const heapSteps: AnimStep<number[]>[] = [];
+        const heapify = (arr: number[], n: number, i: number) => {
+          let largest = i;
+          const left = 2 * i + 1;
+          const right = 2 * i + 2;
+          if (left < n) {
+            heapSteps.push({ state: [...arr], description: `比较 ${arr[left]} 和 ${arr[largest]}`, compare: [left, largest] });
+            if (arr[left] > arr[largest]) largest = left;
+          }
+          if (right < n) {
+            heapSteps.push({ state: [...arr], description: `比较 ${arr[right]} 和 ${arr[largest]}`, compare: [right, largest] });
+            if (arr[right] > arr[largest]) largest = right;
+          }
+          if (largest !== i) {
+            [arr[i], arr[largest]] = [arr[largest], arr[i]];
+            heapSteps.push({ state: [...arr], description: `交换 ${arr[largest]} 和 ${arr[i]}`, swap: [i, largest] });
+            heapify(arr, n, largest);
+          }
+        };
+        const n = workingArr.length;
+        for (let i = Math.floor(n / 2) - 1; i >= 0; i--) heapify(workingArr, n, i);
+        for (let i = n - 1; i > 0; i--) {
+          [workingArr[0], workingArr[i]] = [workingArr[i], workingArr[0]];
+          heapSteps.push({ state: [...workingArr], description: `提取最大元素 ${workingArr[i]}`, swap: [0, i], sorted: [i] });
+          heapify(workingArr, i, 0);
+        }
+        steps.push(...heapSteps);
+        break;
+
+      case 'shell':
+        for (let gap = Math.floor(workingArr.length / 2); gap > 0; gap = Math.floor(gap / 2)) {
+          for (let i = gap; i < workingArr.length; i++) {
+            const temp = workingArr[i];
+            let j = i;
+            while (j >= gap && workingArr[j - gap] > temp) {
+              workingArr[j] = workingArr[j - gap];
+              steps.push({
+                state: [...workingArr],
+                description: `移动 ${workingArr[j - gap]} 到位置 ${j}`,
+                swap: [j - gap, j],
+              });
+              j -= gap;
+            }
+            workingArr[j] = temp;
+          }
+        }
+        break;
+
+      case 'counting':
+        const max = Math.max(...workingArr);
+        const count = new Array(max + 1).fill(0);
+        const output = new Array(workingArr.length);
+        for (let i = 0; i < workingArr.length; i++) count[workingArr[i]]++;
+        for (let i = 1; i <= max; i++) count[i] += count[i - 1];
+        for (let i = workingArr.length - 1; i >= 0; i--) {
+          output[count[workingArr[i]] - 1] = workingArr[i];
+          count[workingArr[i]]--;
+          steps.push({
+            state: [...output],
+            description: `放置 ${workingArr[i]} 到位置 ${count[workingArr[i]]}`,
+            sorted: Array.from({ length: workingArr.length - i - 1 }, (_, k) => k),
+          });
+        }
+        for (let i = 0; i < workingArr.length; i++) workingArr[i] = output[i];
+        break;
+
+      case 'radix':
+        const radixMax = Math.max(...workingArr);
+        for (let exp = 1; Math.floor(radixMax / exp) > 0; exp *= 10) {
+          const count = new Array(10).fill(0);
+          const output = new Array(workingArr.length);
+          for (let i = 0; i < workingArr.length; i++) count[Math.floor(workingArr[i] / exp) % 10]++;
+          for (let i = 1; i < 10; i++) count[i] += count[i - 1];
+          for (let i = workingArr.length - 1; i >= 0; i--) {
+            const digit = Math.floor(workingArr[i] / exp) % 10;
+            output[count[digit] - 1] = workingArr[i];
+            count[digit]--;
+            steps.push({
+              state: [...output],
+              description: `按第 ${exp} 位数字 ${digit} 放置 ${workingArr[i]}`,
+              sorted: Array.from({ length: workingArr.length - i - 1 }, (_, k) => k),
+            });
+          }
+          for (let i = 0; i < workingArr.length; i++) workingArr[i] = output[i];
+        }
+        break;
     }
+
+    return steps;
   };
 
-  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-
-  const addStep = (text: string) => {
-    setSteps(prev => [text, ...prev].slice(0, 30));
-  };
-
-  const startSort = async () => {
+  const startSort = () => {
     if (isRunning()) return;
     setIsRunning(true);
     setSteps([]);
-    const currentArray = [...array()];
-    const algo = algorithm();
 
-    switch (algo) {
-      case 'bubble': await bubbleSort(currentArray); break;
-      case 'selection': await selectionSort(currentArray); break;
-      case 'insertion': await insertionSort(currentArray); break;
-      case 'quick': await quickSort(currentArray, 0, currentArray.length - 1); break;
-      case 'merge': await mergeSort(currentArray, 0, currentArray.length - 1); break;
-      case 'heap': await heapSort(currentArray); break;
-      case 'shell': await shellSort(currentArray); break;
-      case 'counting': await countingSort(currentArray); break;
-      case 'radix': await radixSort(currentArray); break;
+    const arr = [...array()];
+    const steps = buildSteps(arr, algorithm());
+    controller.setSteps(steps);
+    controller.setSpeed(speed());
+    controller.play().then(() => {
+      setIsRunning(false);
+      setSteps(prev => ['排序完成', ...prev]);
+    });
+  };
+
+  const playSort = () => {
+    if (controller.isAtEnd() || controller.isEmpty()) {
+      startSort();
+    } else {
+      setIsRunning(true);
+      controller.play().then(() => setIsRunning(false));
     }
+  };
 
-    drawArray(currentArray, [], [], Array.from({ length: currentArray.length }, (_, i) => i));
-    addStep('排序完成');
+  const pauseSort = () => {
+    controller.pause();
     setIsRunning(false);
   };
 
-  const bubbleSort = async (arr: number[]) => {
-    const n = arr.length;
-    for (let i = 0; i < n - 1; i++) {
-      for (let j = 0; j < n - i - 1; j++) {
-        if (!isRunning()) return;
-        drawArray(arr, [j, j + 1], [], []);
-        await sleep(Math.max(1, 101 - speed()) * 3);
-        if (arr[j] > arr[j + 1]) {
-          [arr[j], arr[j + 1]] = [arr[j + 1], arr[j]];
-          addStep(`交换: ${arr[j]} <-> ${arr[j+1]}`);
-          drawArray(arr, [], [j, j + 1], []);
-          await sleep(Math.max(1, 101 - speed()) * 3);
-        }
-      }
+  const resetSort = () => {
+    controller.pause();
+    setIsRunning(false);
+    generateArray();
+  };
+
+  const handleStepForward = () => {
+    if (!isRunning()) {
+      controller.stepForward();
     }
   };
 
-  const selectionSort = async (arr: number[]) => {
-    const n = arr.length;
-    for (let i = 0; i < n - 1; i++) {
-      let minIdx = i;
-      for (let j = i + 1; j < n; j++) {
-        if (!isRunning()) return;
-        drawArray(arr, [minIdx, j], [], []);
-        await sleep(Math.max(1, 101 - speed()) * 3);
-        if (arr[j] < arr[minIdx]) minIdx = j;
-      }
-      if (minIdx !== i) {
-        [arr[i], arr[minIdx]] = [arr[minIdx], arr[i]];
-        addStep(`交换位置 ${i} 和 ${minIdx}`);
-        drawArray(arr, [], [i, minIdx], []);
-        await sleep(Math.max(1, 101 - speed()) * 3);
-      }
+  const handleStepBackward = () => {
+    if (!isRunning()) {
+      controller.stepBackward();
     }
   };
 
-  const insertionSort = async (arr: number[]) => {
-    const n = arr.length;
-    for (let i = 1; i < n; i++) {
-      const key = arr[i];
-      let j = i - 1;
-      while (j >= 0 && arr[j] > key) {
-        if (!isRunning()) return;
-        arr[j + 1] = arr[j];
-        drawArray(arr, [j, j + 1], [], []);
-        await sleep(Math.max(1, 101 - speed()) * 3);
-        j--;
-      }
-      arr[j + 1] = key;
-      addStep(`插入 ${key} 到位置 ${j + 1}`);
-    }
-  };
-
-  const quickSort = async (arr: number[], low: number, high: number) => {
-    if (low < high && isRunning()) {
-      const pi = await partition(arr, low, high);
-      await quickSort(arr, low, pi - 1);
-      await quickSort(arr, pi + 1, high);
-    }
-  };
-
-  const partition = async (arr: number[], low: number, high: number) => {
-    const pivot = arr[high];
-    let i = low - 1;
-    for (let j = low; j < high; j++) {
-      if (!isRunning()) return low;
-      drawArray(arr, [j, high], [], []);
-      await sleep(Math.max(1, 101 - speed()) * 3);
-      if (arr[j] < pivot) {
-        i++;
-        [arr[i], arr[j]] = [arr[j], arr[i]];
-        drawArray(arr, [], [i, j], []);
-        await sleep(Math.max(1, 101 - speed()) * 3);
-      }
-    }
-    [arr[i + 1], arr[high]] = [arr[high], arr[i + 1]];
-    return i + 1;
-  };
-
-  const mergeSort = async (arr: number[], left: number, right: number) => {
-    if (left < right && isRunning()) {
-      const mid = Math.floor((left + right) / 2);
-      await mergeSort(arr, left, mid);
-      await mergeSort(arr, mid + 1, right);
-      await merge(arr, left, mid, right);
-    }
-  };
-
-  const merge = async (arr: number[], left: number, mid: number, right: number) => {
-    const leftArr = arr.slice(left, mid + 1);
-    const rightArr = arr.slice(mid + 1, right + 1);
-    let i = 0, j = 0, k = left;
-    while (i < leftArr.length && j < rightArr.length) {
-      if (!isRunning()) return;
-      drawArray(arr, [left + i, mid + 1 + j], [], []);
-      await sleep(Math.max(1, 101 - speed()) * 3);
-      if (leftArr[i] <= rightArr[j]) { arr[k] = leftArr[i]; i++; }
-      else { arr[k] = rightArr[j]; j++; }
-      drawArray(arr, [], [k], []);
-      await sleep(Math.max(1, 101 - speed()) * 3);
-      k++;
-    }
-    while (i < leftArr.length) { arr[k] = leftArr[i]; i++; k++; }
-    while (j < rightArr.length) { arr[k] = rightArr[j]; j++; k++; }
-  };
-
-  const heapSort = async (arr: number[]) => {
-    const n = arr.length;
-    for (let i = Math.floor(n / 2) - 1; i >= 0; i--) await heapify(arr, n, i);
-    for (let i = n - 1; i > 0; i--) {
-      if (!isRunning()) return;
-      [arr[0], arr[i]] = [arr[i], arr[0]];
-      drawArray(arr, [], [0, i], []);
-      await sleep(Math.max(1, 101 - speed()) * 3);
-      await heapify(arr, i, 0);
-    }
-  };
-
-  const heapify = async (arr: number[], n: number, i: number) => {
-    let largest = i;
-    const left = 2 * i + 1;
-    const right = 2 * i + 2;
-    if (left < n && arr[left] > arr[largest]) largest = left;
-    if (right < n && arr[right] > arr[largest]) largest = right;
-    if (largest !== i) {
-      if (!isRunning()) return;
-      [arr[i], arr[largest]] = [arr[largest], arr[i]];
-      drawArray(arr, [i, largest], [], []);
-      await sleep(Math.max(1, 101 - speed()) * 3);
-      await heapify(arr, n, largest);
-    }
-  };
-
-  const shellSort = async (arr: number[]) => {
-    const n = arr.length;
-    for (let gap = Math.floor(n / 2); gap > 0; gap = Math.floor(gap / 2)) {
-      for (let i = gap; i < n; i++) {
-        const temp = arr[i];
-        let j = i;
-        while (j >= gap && arr[j - gap] > temp) {
-          if (!isRunning()) return;
-          arr[j] = arr[j - gap];
-          drawArray(arr, [j, j - gap], [], []);
-          await sleep(Math.max(1, 101 - speed()) * 3);
-          j -= gap;
-        }
-        arr[j] = temp;
-      }
-    }
-  };
-
-  const countingSort = async (arr: number[]) => {
-    const max = Math.max(...arr);
-    const count = new Array(max + 1).fill(0);
-    const output = new Array(arr.length);
-    for (let i = 0; i < arr.length; i++) count[arr[i]]++;
-    for (let i = 1; i <= max; i++) count[i] += count[i - 1];
-    for (let i = arr.length - 1; i >= 0; i--) {
-      if (!isRunning()) return;
-      output[count[arr[i]] - 1] = arr[i];
-      count[arr[i]]--;
-      drawArray(arr, [i], [], []);
-      await sleep(Math.max(1, 101 - speed()) * 3);
-    }
-    for (let i = 0; i < arr.length; i++) arr[i] = output[i];
-  };
-
-  const radixSort = async (arr: number[]) => {
-    const max = Math.max(...arr);
-    for (let exp = 1; Math.floor(max / exp) > 0; exp *= 10) {
-      if (!isRunning()) return;
-      await countingSortByDigit(arr, exp);
-      addStep(`按第 ${exp} 位排序完成`);
-    }
-  };
-
-  const countingSortByDigit = async (arr: number[], exp: number) => {
-    const output = new Array(arr.length);
-    const count = new Array(10).fill(0);
-    for (let i = 0; i < arr.length; i++) count[Math.floor(arr[i] / exp) % 10]++;
-    for (let i = 1; i < 10; i++) count[i] += count[i - 1];
-    for (let i = arr.length - 1; i >= 0; i--) {
-      const digit = Math.floor(arr[i] / exp) % 10;
-      output[count[digit] - 1] = arr[i];
-      count[digit]--;
-    }
-    for (let i = 0; i < arr.length; i++) {
-      arr[i] = output[i];
-      drawArray(arr, [i], [], []);
-      await sleep(Math.max(1, 101 - speed()) * 3);
-    }
+  const handleSpeedChange = (newSpeed: number) => {
+    setSpeed(newSpeed);
+    controller.setSpeed(newSpeed);
   };
 
   createEffect(() => {
@@ -336,7 +462,10 @@ export default function Sorting() {
             <Dropdown
               id="sort-algorithm"
               value={algorithm()}
-              onChange={(value) => setAlgorithm(value)}
+              onChange={(value) => {
+                setAlgorithm(value);
+                resetSort();
+              }}
               options={[
                 { label: '冒泡排序', value: 'bubble' },
                 { label: '选择排序', value: 'selection' },
@@ -358,35 +487,35 @@ export default function Sorting() {
               min="10"
               max="100"
               value={arraySize()}
-              onInput={(e) => setArraySize(parseInt(e.currentTarget.value))}
+              onInput={(e) => {
+                setArraySize(parseInt(e.currentTarget.value));
+                generateArray();
+              }}
             />
             <span>{arraySize()}</span>
           </div>
-          <div class="controls-group">
-            <label for="sort-speed">速度</label>
-            <input
-              type="range"
-              id="sort-speed"
-              min="1"
-              max="100"
-              value={speed()}
-              onInput={(e) => setSpeed(parseInt(e.currentTarget.value))}
-            />
-          </div>
-          <div class="controls-group">
-            <button class="btn" onClick={generateArray}>生成新数组</button>
-            <button class="btn btn-primary" onClick={startSort} disabled={isRunning()}>
-              {isRunning() ? '运行中...' : '开始排序'}
-            </button>
-          </div>
         </div>
 
-        <div class="canvas-container">
+        <div class="canvas-container canvas-container-enhanced">
           <canvas
             ref={el => { canvasRef = el; }}
             style={{ width: '100%', height: '400px', display: 'block' }}
           />
         </div>
+
+        <ControlPanel
+          isRunning={isRunning()}
+          speed={speed()}
+          currentStep={currentStep()}
+          totalSteps={totalSteps()}
+          onPlay={playSort}
+          onPause={pauseSort}
+          onReset={resetSort}
+          onStepForward={handleStepForward}
+          onStepBackward={handleStepBackward}
+          onSpeedChange={handleSpeedChange}
+          onGenerate={generateArray}
+        />
 
         <div class="info-panel">
           <h3>算法复杂度</h3>
@@ -427,7 +556,7 @@ export default function Sorting() {
           <h3>执行步骤</h3>
           <div>
             {steps().length === 0 ? (
-              <div class="step-item">点击"开始排序"查看算法执行过程</div>
+              <div class="step-item">点击播放按钮开始算法可视化</div>
             ) : (
               steps().map(step => <div class="step-item active">{step}</div>)
             )}

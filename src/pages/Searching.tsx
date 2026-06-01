@@ -1,11 +1,15 @@
-import { createSignal, onMount } from 'solid-js';
+import { createSignal, onMount, onCleanup } from 'solid-js';
 import { searchingCodes, languageLabels, type Language } from '../utils/codeData';
 import Dropdown from '../components/Dropdown';
 import CodePanel from '../components/CodePanel';
+import ControlPanel from '../components/ControlPanel';
+import { DoubleBufferedRenderer } from '../utils/canvasRenderer';
+import { AnimationController, type AnimStep } from '../utils/animation';
 
 export default function Searching() {
   let canvasRef: HTMLCanvasElement;
-  let ctxRef: CanvasRenderingContext2D;
+  let renderer: DoubleBufferedRenderer;
+  let controller: AnimationController<number[]>;
   const [algorithm, setAlgorithm] = createSignal('linear');
   const [arraySize, setArraySize] = createSignal(50);
   const [speed, setSpeed] = createSignal(50);
@@ -14,96 +18,190 @@ export default function Searching() {
   const [lang, setLang] = createSignal<Language>('javascript');
   const [target, setTarget] = createSignal(42);
   const [array, setArray] = createSignal<number[]>([]);
+  const [currentStep, setCurrentStep] = createSignal(-1);
+  const [totalSteps, setTotalSteps] = createSignal(0);
 
   onMount(() => {
-    ctxRef = canvasRef.getContext('2d')!;
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvasRef.getBoundingClientRect();
-    canvasRef.width = rect.width * dpr;
-    canvasRef.height = rect.height * dpr;
-    ctxRef.scale(dpr, dpr);
+    renderer = new DoubleBufferedRenderer(canvasRef, {
+      barColor: '#cccccc',
+      comparingColor: '#555555',
+      swappingColor: '#1a1a1a',
+      sortedColor: '#888888',
+      pivotColor: '#333333',
+      backgroundColor: '#ffffff',
+      gradientEnabled: true,
+      glowEnabled: true,
+      particleEnabled: true,
+    });
+    controller = new AnimationController<number[]>({ speed: speed() });
+    controller.setCallbacks(
+      (step: AnimStep<number[]>) => {
+        const arr = step.state;
+        renderer.render({
+          array: arr,
+          comparing: step.highlight || [],
+          swapping: [],
+          sorted: step.sorted || [],
+        });
+
+        if (step.swap) {
+          const barWidth = canvasRef.getBoundingClientRect().width / arr.length;
+          const x = (step.swap[0] + 0.5) * barWidth;
+          const height = canvasRef.getBoundingClientRect().height;
+          renderer.emitParticles(x, height - 100, 20, '#1a1a1a');
+        }
+
+        setSteps(prev => [step.description, ...prev].slice(0, 30));
+      },
+      (state, index, total) => {
+        setCurrentStep(index);
+        setTotalSteps(total);
+      }
+    );
+
     generateArray();
-    window.addEventListener('resize', () => {
-      const rect = canvasRef.getBoundingClientRect();
-      canvasRef.width = rect.width * dpr;
-      canvasRef.height = rect.height * dpr;
-      ctxRef.scale(dpr, dpr);
-      drawArray(array(), -1, -1, -1);
+
+    const handleKeydown = (e: KeyboardEvent) => {
+      if (e.key === ' ' || e.key === 'Space') {
+        e.preventDefault();
+        if (isRunning()) pauseSearch();
+        else playSearch();
+      }
+      if (e.key === 'ArrowLeft') controller.stepBackward();
+      if (e.key === 'ArrowRight') controller.stepForward();
+      if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault();
+        resetSearch();
+      }
+    };
+    window.addEventListener('keydown', handleKeydown);
+
+    onCleanup(() => {
+      controller.destroy();
+      renderer.destroy();
+      window.removeEventListener('keydown', handleKeydown);
     });
   });
 
   const generateArray = () => {
     const arr: number[] = [];
-    for (let i = 0; i < arraySize(); i++) arr.push(Math.floor(Math.random() * 100) + 1);
+    for (let i = 0; i < arraySize(); i++) arr.push(Math.floor(Math.random() * 85) + 15);
     arr.sort((a, b) => a - b);
     setArray(arr);
-    drawArray(arr, -1, -1, -1);
+    controller.reset();
+    controller.setSteps([]);
     setSteps([]);
+    setCurrentStep(-1);
+    setTotalSteps(0);
+    renderer.render({ array: arr, comparing: [], swapping: [], sorted: [] });
   };
 
-  const drawArray = (arr: number[], current: number, low: number, high: number) => {
-    if (!ctxRef) return;
-    const canvas = canvasRef;
-    const ctx = ctxRef;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const barWidth = canvas.width / arr.length;
-    const maxValue = Math.max(...arr, 1);
-    for (let i = 0; i < arr.length; i++) {
-      const barHeight = (arr[i] / maxValue) * (canvas.height - 80);
-      const x = i * barWidth;
-      const y = canvas.height - barHeight - 40;
-      if (i === current) ctx.fillStyle = '#666666';
-      else if (i >= low && i <= high && low !== -1) ctx.fillStyle = '#999999';
-      else ctx.fillStyle = '#cccccc';
-      ctx.fillRect(x + 1, y, barWidth - 2, barHeight);
-      if (arr.length <= 30) {
-        ctx.fillStyle = '#666666'; ctx.font = '10px monospace'; ctx.textAlign = 'center';
-        ctx.fillText(String(arr[i]), x + barWidth / 2, y - 5);
+  const buildSteps = (arr: number[], algo: string, target: number) => {
+    const steps: AnimStep<number[]>[] = [];
+
+    if (algo === 'linear') {
+      for (let i = 0; i < arr.length; i++) {
+        steps.push({
+          state: [...arr],
+          description: `检查索引 ${i}: 值 = ${arr[i]}`,
+          highlight: [i],
+        });
+        if (arr[i] === target) {
+          steps.push({
+            state: [...arr],
+            description: `找到目标值 ${target}! 索引: ${i}`,
+            swap: [i, i],
+          });
+          return steps;
+        }
       }
+      steps.push({ state: [...arr], description: `未找到目标值 ${target}` });
+    } else {
+      let low = 0, high = arr.length - 1;
+      while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        steps.push({
+          state: [...arr],
+          description: `范围 [${low}, ${high}], 中间: 索引 ${mid}, 值 ${arr[mid]}`,
+          highlight: [mid],
+          sorted: Array.from({ length: high - low + 1 }, (_, i) => low + i),
+        });
+        if (arr[mid] === target) {
+          steps.push({
+            state: [...arr],
+            description: `找到目标值 ${target}! 索引: ${mid}`,
+            swap: [mid, mid],
+          });
+          return steps;
+        } else if (arr[mid] < target) {
+          steps.push({
+            state: [...arr],
+            description: `${arr[mid]} < ${target}, 搜索右半部分`,
+            sorted: Array.from({ length: high - mid }, (_, i) => mid + 1 + i),
+          });
+          low = mid + 1;
+        } else {
+          steps.push({
+            state: [...arr],
+            description: `${arr[mid]} > ${target}, 搜索左半部分`,
+            sorted: Array.from({ length: mid - low }, (_, i) => low + i),
+          });
+          high = mid - 1;
+        }
+      }
+      steps.push({ state: [...arr], description: `未找到目标值 ${target}` });
     }
+
+    return steps;
   };
 
-  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-  const addStep = (text: string) => setSteps(prev => [text, ...prev].slice(0, 30));
-
-  const startSearch = async () => {
+  const startSearch = () => {
     if (isRunning()) return;
     setIsRunning(true);
     setSteps([]);
+
     const arr = [...array()];
     const t = target();
-    if (algorithm() === 'linear') await linearSearch(arr, t);
-    else await binarySearch(arr, t);
+    const steps = buildSteps(arr, algorithm(), t);
+    controller.setSteps(steps);
+    controller.setSpeed(speed());
+    controller.play().then(() => {
+      setIsRunning(false);
+      setSteps(prev => [`搜索完成`, ...prev]);
+    });
+  };
+
+  const playSearch = () => {
+    if (controller.isAtEnd() || controller.isEmpty()) {
+      startSearch();
+    } else {
+      setIsRunning(true);
+      controller.play().then(() => setIsRunning(false));
+    }
+  };
+
+  const pauseSearch = () => {
+    controller.pause();
     setIsRunning(false);
   };
 
-  const linearSearch = async (arr: number[], target: number) => {
-    addStep(`开始线性搜索: 目标值 = ${target}`);
-    for (let i = 0; i < arr.length; i++) {
-      if (!isRunning()) return;
-      addStep(`检查索引 ${i}: ${arr[i]}`);
-      drawArray(arr, i, -1, -1);
-      await sleep(Math.max(1, 101 - speed()) * 10);
-      if (arr[i] === target) { addStep(`找到目标值! 索引: ${i}`); return; }
-    }
-    addStep(`未找到目标值 ${target}`);
+  const resetSearch = () => {
+    controller.pause();
+    setIsRunning(false);
+    generateArray();
   };
 
-  const binarySearch = async (arr: number[], target: number) => {
-    addStep(`开始二分搜索: 目标值 = ${target}`);
-    let low = 0, high = arr.length - 1;
-    while (low <= high) {
-      if (!isRunning()) return;
-      const mid = Math.floor((low + high) / 2);
-      addStep(`范围 [${low}, ${high}], 中间索引: ${mid}, 值: ${arr[mid]}`);
-      drawArray(arr, mid, low, high);
-      await sleep(Math.max(1, 101 - speed()) * 10);
-      if (arr[mid] === target) { addStep(`找到目标值! 索引: ${mid}`); return; }
-      else if (arr[mid] < target) { addStep(`${arr[mid]} < ${target}, 搜索右半部分`); low = mid + 1; }
-      else { addStep(`${arr[mid]} > ${target}, 搜索左半部分`); high = mid - 1; }
-      await sleep(Math.max(1, 101 - speed()) * 10);
-    }
-    addStep(`未找到目标值 ${target}`);
+  const handleStepForward = () => {
+    if (!isRunning()) controller.stepForward();
+  };
+
+  const handleStepBackward = () => {
+    if (!isRunning()) controller.stepBackward();
+  };
+
+  const handleSpeedChange = (newSpeed: number) => {
+    setSpeed(newSpeed);
+    controller.setSpeed(newSpeed);
   };
 
   const codeContent = () => {
@@ -125,7 +223,10 @@ export default function Searching() {
             <label>算法</label>
             <Dropdown
               value={algorithm()}
-              onChange={(value) => setAlgorithm(value)}
+              onChange={(value) => {
+                setAlgorithm(value);
+                resetSearch();
+              }}
               options={[
                 { label: '线性搜索', value: 'linear' },
                 { label: '二分搜索', value: 'binary' },
@@ -134,28 +235,35 @@ export default function Searching() {
           </div>
           <div class="controls-group">
             <label>数组大小</label>
-            <input type="range" min="10" max="100" value={arraySize()} onInput={e => setArraySize(parseInt(e.currentTarget.value))} />
+            <input type="range" min="10" max="100" value={arraySize()} onInput={e => {
+              setArraySize(parseInt(e.currentTarget.value));
+              generateArray();
+            }} />
             <span>{arraySize()}</span>
-          </div>
-          <div class="controls-group">
-            <label>速度</label>
-            <input type="range" min="1" max="100" value={speed()} onInput={e => setSpeed(parseInt(e.currentTarget.value))} />
           </div>
           <div class="controls-group">
             <label>目标值</label>
             <input type="number" value={target()} onChange={e => setTarget(parseInt(e.currentTarget.value))} style={{ width: '80px', padding: '0.5rem', border: '1px solid var(--border)' }} />
           </div>
-          <div class="controls-group">
-            <button class="btn" onClick={generateArray}>生成新数组</button>
-            <button class="btn btn-primary" onClick={startSearch} disabled={isRunning()}>
-              {isRunning() ? '运行中...' : '开始搜索'}
-            </button>
-          </div>
         </div>
 
-        <div class="canvas-container">
+        <div class="canvas-container canvas-container-enhanced">
           <canvas ref={el => canvasRef = el} style={{ width: '100%', height: '400px', display: 'block' }} />
         </div>
+
+        <ControlPanel
+          isRunning={isRunning()}
+          speed={speed()}
+          currentStep={currentStep()}
+          totalSteps={totalSteps()}
+          onPlay={playSearch}
+          onPause={pauseSearch}
+          onReset={resetSearch}
+          onStepForward={handleStepForward}
+          onStepBackward={handleStepBackward}
+          onSpeedChange={handleSpeedChange}
+          onGenerate={generateArray}
+        />
 
         <div class="info-panel">
           <h3>算法复杂度</h3>
@@ -183,7 +291,7 @@ export default function Searching() {
           <h3>执行步骤</h3>
           <div>
             {steps().length === 0 ? (
-              <div class="step-item">点击"开始搜索"查看算法执行过程</div>
+              <div class="step-item">点击播放按钮开始算法可视化</div>
             ) : (
               steps().map(step => <div class="step-item active">{step}</div>)
             )}
