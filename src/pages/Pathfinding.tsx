@@ -2,6 +2,8 @@ import { createSignal, onMount, onCleanup } from 'solid-js';
 import Dropdown from '../components/Dropdown';
 import ControlPanel from '../components/ControlPanel';
 import { AnimationController, type AnimStep } from '../utils/animation';
+import { PathfindingVisualizer } from '../utils/three/PathfindingVisualizer';
+import { DARK_THEME, LIGHT_THEME } from '../utils/three/ThreeVisualizer';
 
 interface Cell {
   row: number;
@@ -24,10 +26,9 @@ interface PathStep {
 }
 
 export default function Pathfinding() {
-  let canvasRef: HTMLCanvasElement;
-  let ctxRef: CanvasRenderingContext2D;
+  let containerRef: HTMLDivElement | undefined;
+  let visualizer: PathfindingVisualizer | undefined;
   let controller: AnimationController<Cell[][]>;
-  let animationId: number | null = null;
 
   const [gridSize, setGridSize] = createSignal(15);
   const [isRunning, setIsRunning] = createSignal(false);
@@ -58,149 +59,77 @@ export default function Pathfinding() {
   };
 
   onMount(() => {
-    setupCanvas();
+    if (!containerRef) return;
+    visualizer = new PathfindingVisualizer(containerRef);
+    const isDark = () => document.documentElement.getAttribute('data-theme') === 'dark';
+    visualizer.setTheme(isDark() ? DARK_THEME : LIGHT_THEME);
+    visualizer.start();
+
+    const observer = new MutationObserver(() => {
+      visualizer?.setTheme(isDark() ? DARK_THEME : LIGHT_THEME);
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
     const g = createGrid(gridSize());
     setGrid(g);
-    drawGrid(g);
+    visualizer.setGrid(g);
 
     controller = new AnimationController<Cell[][]>({ speed: speed() });
     controller.setCallbacks(
       (step: AnimStep<Cell[][]>) => {
-        setGrid(step.state);
-        drawGrid(step.state, (step as any).current);
+        const current = (step as any).current as { row: number; col: number } | undefined;
+        if (current) {
+          if (step.description.includes('邻居') || step.description.includes('更新') || step.description.includes('距离')) {
+            visualizer?.markInOpenSet(current.row, current.col);
+          } else if (step.description.includes('访问') || step.description.includes('选择') || step.description.includes('初始化')) {
+            visualizer?.markVisited(current.row, current.col);
+            visualizer?.markCurrent(current.row, current.col);
+          } else if (step.description.includes('回溯') || step.description.includes('放置') || step.description.includes('找到')) {
+            visualizer?.markVisited(current.row, current.col);
+          }
+        }
         setSteps(prev => [step.description, ...prev].slice(0, 30));
       },
       (state, index, total) => {
         setCurrentStep(index);
         setTotalSteps(total);
+        const lastStep = state as any;
+        if (lastStep && lastStep._path) {
+          visualizer?.showPath(lastStep._path);
+        }
       }
     );
 
     const handleKeydown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
-
       if (e.key === ' ' || e.key === 'Space') {
         e.preventDefault();
         if (isRunning()) pausePathfinding();
         else playPathfinding();
       }
-      if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        controller.stepBackward();
-      }
-      if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        controller.stepForward();
-      }
-      if (e.key === 'r' || e.key === 'R') {
-        e.preventDefault();
-        resetPathfinding();
-      }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); controller.stepBackward(); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); controller.stepForward(); }
+      if (e.key === 'r' || e.key === 'R') { e.preventDefault(); resetPathfinding(); }
     };
     window.addEventListener('keydown', handleKeydown);
 
-    const handleResize = () => {
-      setupCanvas();
-      drawGrid(grid());
-    };
-    window.addEventListener('resize', handleResize);
-
     onCleanup(() => {
       controller.destroy();
+      observer.disconnect();
       window.removeEventListener('keydown', handleKeydown);
-      window.removeEventListener('resize', handleResize);
+      visualizer?.stop();
     });
   });
 
-  const setupCanvas = () => {
-    if (!canvasRef) return;
-    ctxRef = canvasRef.getContext('2d')!;
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvasRef.getBoundingClientRect();
-    canvasRef.width = rect.width * dpr;
-    canvasRef.height = rect.height * dpr;
-    ctxRef.scale(dpr, dpr);
-  };
-
-  const drawGrid = (g: Cell[][], current?: { row: number; col: number }) => {
-    if (!ctxRef || g.length === 0) return;
-    const canvas = canvasRef;
-    const ctx = ctxRef;
-    const size = g.length;
-    const cellSize = Math.min(canvas.width, canvas.height) / size;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    for (let r = 0; r < size; r++) {
-      for (let c = 0; c < size; c++) {
-        const cell = g[r][c];
-        const x = c * cellSize;
-        const y = r * cellSize;
-
-        let color = '#ffffff';
-        let glow = false;
-
-        if (cell.isWall) {
-          color = '#1a1a1a';
-        } else if (cell.isPath) {
-          color = '#444444';
-          glow = true;
-        } else if (cell.isEnd) {
-          color = '#666666';
-          glow = true;
-        } else if (cell.isStart) {
-          color = '#333333';
-          glow = true;
-        } else if (current && current.row === r && current.col === c) {
-          color = '#1a1a1a';
-          glow = true;
-        } else if (cell.isVisited) {
-          color = '#e5e5e5';
-        }
-
-        if (glow) {
-          ctx.shadowColor = color;
-          ctx.shadowBlur = 8;
-        } else {
-          ctx.shadowBlur = 0;
-        }
-
-        ctx.fillStyle = color;
-        const pad = 1;
-        ctx.beginPath();
-        const radius = Math.min(3, (cellSize - pad * 2) / 3);
-        ctx.moveTo(x + pad + radius, y + pad);
-        ctx.lineTo(x + cellSize - pad - radius, y + pad);
-        ctx.quadraticCurveTo(x + cellSize - pad, y + pad, x + cellSize - pad, y + pad + radius);
-        ctx.lineTo(x + cellSize - pad, y + cellSize - pad - radius);
-        ctx.quadraticCurveTo(x + cellSize - pad, y + cellSize - pad, x + cellSize - pad - radius, y + cellSize - pad);
-        ctx.lineTo(x + pad + radius, y + cellSize - pad);
-        ctx.quadraticCurveTo(x + pad, y + cellSize - pad, x + pad, y + cellSize - pad - radius);
-        ctx.lineTo(x + pad, y + pad + radius);
-        ctx.quadraticCurveTo(x + pad, y + pad, x + pad + radius, y + pad);
-        ctx.closePath();
-        ctx.fill();
-
-        ctx.shadowBlur = 0;
-
-        if (cell.isStart || cell.isEnd) {
-          ctx.fillStyle = '#ffffff';
-          ctx.beginPath();
-          ctx.arc(x + cellSize / 2, y + cellSize / 2, cellSize / 4, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-    }
-  };
-
   const regenerateGrid = () => {
-    controller.reset();
+    controller?.reset();
     const g = createGrid(gridSize());
     setGrid(g);
+    visualizer?.setGrid(g);
     setSteps([]);
     setCurrentStep(-1);
     setTotalSteps(0);
-    drawGrid(g);
   };
 
   const buildSteps = (g: Cell[][], algo: string): PathStep[] => {
@@ -255,7 +184,8 @@ export default function Pathfinding() {
           steps.push({
             grid: workingGrid.map(row => row.map(c => ({ ...c }))),
             description: '找到最短路径！',
-          });
+            _path: path as any,
+          } as any);
           return steps;
         }
 
@@ -294,8 +224,7 @@ export default function Pathfinding() {
           for (let c = 0; c < size; c++) {
             if (!visited[r][c] && !workingGrid[r][c].isWall && dist[r][c] < minDist) {
               minDist = dist[r][c];
-              minR = r;
-              minC = c;
+              minR = r; minC = c;
             }
           }
         }
@@ -310,22 +239,24 @@ export default function Pathfinding() {
 
         if (minR === end.row && minC === end.col) {
           let r = minR, c = minC;
+          const path: { row: number; col: number }[] = [];
           while (parent[r][c]) {
             const p = parent[r][c];
             workingGrid[p.row][p.col].isPath = true;
+            path.push(p);
             steps.push({
               grid: workingGrid.map(row => row.map(c => ({ ...c }))),
               description: `回溯到 (${p.row}, ${p.col})`,
               current: p,
             });
-            r = p.row;
-            c = p.col;
+            r = p.row; c = p.col;
           }
           workingGrid[start.row][start.col].isPath = true;
           steps.push({
             grid: workingGrid.map(row => row.map(c => ({ ...c }))),
             description: '找到最短路径！',
-          });
+            _path: path as any,
+          } as any);
           return steps;
         }
 
@@ -375,22 +306,24 @@ export default function Pathfinding() {
 
         if (current.row === end.row && current.col === end.col) {
           let r = current.row, c = current.col;
+          const path: { row: number; col: number }[] = [];
           while (parent[r][c]) {
             const p = parent[r][c];
             workingGrid[p.row][p.col].isPath = true;
+            path.push(p);
             steps.push({
               grid: workingGrid.map(row => row.map(c => ({ ...c }))),
               description: `回溯到 (${p.row}, ${p.col})`,
               current: p,
             });
-            r = p.row;
-            c = p.col;
+            r = p.row; c = p.col;
           }
           workingGrid[start.row][start.col].isPath = true;
           steps.push({
             grid: workingGrid.map(row => row.map(c => ({ ...c }))),
             description: '找到最短路径！',
-          });
+            _path: path as any,
+          } as any);
           return steps;
         }
 
@@ -426,7 +359,7 @@ export default function Pathfinding() {
 
     const g = createGrid(gridSize());
     setGrid(g);
-    drawGrid(g);
+    visualizer?.setGrid(g);
 
     const builtSteps = buildSteps(g, algorithm());
     const animSteps: AnimStep<Cell[][]>[] = builtSteps.map(s => ({
@@ -452,46 +385,28 @@ export default function Pathfinding() {
     }
   };
 
-  const pausePathfinding = () => {
-    controller.pause();
-    setIsRunning(false);
-  };
-
-  const resetPathfinding = () => {
-    controller.pause();
-    setIsRunning(false);
-    regenerateGrid();
-  };
-
-  const handleStepForward = () => {
-    if (!isRunning()) controller.stepForward();
-  };
-
-  const handleStepBackward = () => {
-    if (!isRunning()) controller.stepBackward();
-  };
-
-  const handleSpeedChange = (newSpeed: number) => {
-    setSpeed(newSpeed);
-    controller.setSpeed(newSpeed);
-  };
+  const pausePathfinding = () => { controller.pause(); setIsRunning(false); };
+  const resetPathfinding = () => { controller.pause(); setIsRunning(false); regenerateGrid(); };
+  const handleStepForward = () => { if (!isRunning()) controller.stepForward(); };
+  const handleStepBackward = () => { if (!isRunning()) controller.stepBackward(); };
+  const handleSpeedChange = (newSpeed: number) => { setSpeed(newSpeed); controller.setSpeed(newSpeed); };
 
   return (
     <main class="visualization-page">
       <div class="container">
         <div class="visualization-header">
           <h1>寻路算法可视化</h1>
-          <p class="description">A*、Dijkstra、BFS 是常用的图搜索算法，用于在网格中寻找从起点到终点的最短路径。</p>
+          <p class="description">
+            A*、Dijkstra、BFS 是常用的图搜索算法,用于在网格中寻找从起点到终点的最短路径。
+            <span class="hint">3D 迷宫 · 拖拽旋转视角 · 滚轮缩放</span>
+          </p>
         </div>
         <div class="controls">
           <div class="controls-group">
             <label>算法</label>
             <Dropdown
               value={algorithm()}
-              onChange={(value) => {
-                setAlgorithm(value);
-                resetPathfinding();
-              }}
+              onChange={(value) => { setAlgorithm(value); resetPathfinding(); }}
               options={[
                 { label: 'A* 算法', value: 'astar' },
                 { label: 'Dijkstra', value: 'dijkstra' },
@@ -508,13 +423,19 @@ export default function Pathfinding() {
                 { label: '10×10', value: '10' },
                 { label: '15×15', value: '15' },
                 { label: '20×20', value: '20' },
-                { label: '25×25', value: '25' },
               ]}
             />
           </div>
         </div>
-        <div class="canvas-container canvas-container-enhanced">
-          <canvas ref={el => canvasRef = el} style={{ width: '100%', height: '500px', display: 'block' }} />
+        <div class="canvas-container canvas-container-3d">
+          <div ref={el => { containerRef = el; }} class="three-container" />
+          <div class="three-hint">
+            <span>3D VIEW</span>
+            <span class="three-hint-divider">·</span>
+            <span>拖拽旋转</span>
+            <span class="three-hint-divider">·</span>
+            <span>滚轮缩放</span>
+          </div>
         </div>
         <ControlPanel
           isRunning={isRunning()}
