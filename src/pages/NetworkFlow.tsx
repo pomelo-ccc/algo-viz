@@ -1,4 +1,5 @@
 import { createSignal } from 'solid-js';
+import CodePanel from '../components/CodePanel';
 
 export default function NetworkFlow() {
   const [activeTab, setActiveTab] = createSignal('maxflow');
@@ -364,6 +365,8 @@ export default function NetworkFlow() {
             )}
           </div>
         </div>
+
+        <CodePanel category="networkflow" algorithm={activeTab()} />
       </div>
     </main>
   );

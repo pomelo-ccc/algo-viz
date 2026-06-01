@@ -1,4 +1,5 @@
 import { createSignal } from 'solid-js';
+import CodePanel from '../components/CodePanel';
 
 export default function AdvancedDataStructures() {
   const [activeTab, setActiveTab] = createSignal('segment');
@@ -373,6 +374,8 @@ export default function AdvancedDataStructures() {
             )}
           </div>
         </div>
+
+        <CodePanel category="advancedDS" algorithm={activeTab()} />
       </div>
     </main>
   );

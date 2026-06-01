@@ -1,5 +1,6 @@
 import { createSignal, For } from 'solid-js';
 import Dropdown from '../components/Dropdown';
+import CodePanel from '../components/CodePanel';
 
 interface MergeSortState {
   array: number[];
@@ -376,6 +377,8 @@ export default function DivideConquer() {
             )}
           </div>
         </div>
+
+        <CodePanel category="divideConquer" algorithm={activeTab() === 'merge' ? 'mergeSort' : activeTab()} />
       </div>
     </main>
   );

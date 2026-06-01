@@ -1,4 +1,5 @@
 import { createSignal } from 'solid-js';
+import CodePanel from '../components/CodePanel';
 
 export default function MathAlgorithms() {
   const [activeTab, setActiveTab] = createSignal('sieve');
@@ -323,6 +324,8 @@ export default function MathAlgorithms() {
             )}
           </div>
         </div>
+
+        <CodePanel category="math" algorithm={activeTab() === 'sieve' ? 'prime' : activeTab()} />
       </div>
     </main>
   );

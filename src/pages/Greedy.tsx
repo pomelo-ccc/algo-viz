@@ -1,5 +1,6 @@
 import { createSignal } from 'solid-js';
 import Dropdown from '../components/Dropdown';
+import CodePanel from '../components/CodePanel';
 
 interface Activity {
   id: number;
@@ -331,6 +332,8 @@ export default function Greedy() {
             )}
           </div>
         </div>
+
+        <CodePanel category="greedy" algorithm={activeTab()} />
       </div>
     </main>
   );

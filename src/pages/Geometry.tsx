@@ -1,4 +1,5 @@
 import { createSignal, onMount } from 'solid-js';
+import CodePanel from '../components/CodePanel';
 
 interface Point {
   x: number;
@@ -416,6 +417,8 @@ export default function Geometry() {
             )}
           </div>
         </div>
+
+        <CodePanel category="geometry" algorithm={activeTab()} />
       </div>
     </main>
   );

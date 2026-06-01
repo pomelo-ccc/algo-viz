@@ -1,4 +1,5 @@
 import { createSignal } from 'solid-js';
+import CodePanel from '../components/CodePanel';
 
 export default function BitManipulation() {
   const [numA, setNumA] = createSignal(170);
@@ -289,6 +290,8 @@ export default function BitManipulation() {
             )}
           </div>
         </div>
+
+        <CodePanel category="bitmanip" algorithm="basic" />
       </div>
     </main>
   );
