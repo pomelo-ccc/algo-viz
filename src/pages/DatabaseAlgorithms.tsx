@@ -1,4 +1,5 @@
 import { createSignal } from 'solid-js';
+import CodePanel from '../components/CodePanel';
 
 interface BPlusTreeNode {
   keys: number[];
@@ -266,6 +267,7 @@ export default function DatabaseAlgorithms() {
             )}
           </div>
         </div>
+        <CodePanel category="databasealgorithms" algorithm={activeTab()} />
       </div>
     </main>
   );

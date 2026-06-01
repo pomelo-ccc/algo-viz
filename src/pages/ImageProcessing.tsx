@@ -1,4 +1,5 @@
 import { createSignal } from 'solid-js';
+import CodePanel from '../components/CodePanel';
 
 export default function ImageProcessing() {
   const [activeTab, setActiveTab] = createSignal('edge');
@@ -326,6 +327,7 @@ export default function ImageProcessing() {
             )}
           </div>
         </div>
+        <CodePanel category="imageprocessing" algorithm={activeTab()} />
       </div>
     </main>
   );

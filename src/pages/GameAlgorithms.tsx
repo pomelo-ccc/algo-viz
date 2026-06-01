@@ -1,4 +1,5 @@
 import { createSignal } from 'solid-js';
+import CodePanel from '../components/CodePanel';
 
 export default function GameAlgorithms() {
   const [activeTab, setActiveTab] = createSignal('minimax');
@@ -286,6 +287,7 @@ export default function GameAlgorithms() {
             )}
           </div>
         </div>
+        <CodePanel category="gamealgorithms" algorithm={activeTab()} />
       </div>
     </main>
   );

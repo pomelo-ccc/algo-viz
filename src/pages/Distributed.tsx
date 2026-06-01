@@ -1,4 +1,5 @@
 import { createSignal } from 'solid-js';
+import CodePanel from '../components/CodePanel';
 
 export default function Distributed() {
   const [activeTab, setActiveTab] = createSignal('mapreduce');
@@ -298,6 +299,7 @@ export default function Distributed() {
             )}
           </div>
         </div>
+        <CodePanel category="distributed" algorithm={activeTab()} />
       </div>
     </main>
   );

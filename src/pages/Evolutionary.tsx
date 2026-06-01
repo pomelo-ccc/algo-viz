@@ -1,4 +1,5 @@
 import { createSignal } from 'solid-js';
+import CodePanel from '../components/CodePanel';
 
 export default function Evolutionary() {
   const [activeTab, setActiveTab] = createSignal('genetic');
@@ -411,6 +412,7 @@ export default function Evolutionary() {
             )}
           </div>
         </div>
+        <CodePanel category="evolutionary" algorithm={activeTab()} />
       </div>
     </main>
   );

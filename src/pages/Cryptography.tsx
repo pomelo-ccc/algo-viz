@@ -1,4 +1,5 @@
 import { createSignal } from 'solid-js';
+import CodePanel from '../components/CodePanel';
 
 export default function Cryptography() {
   const [activeTab, setActiveTab] = createSignal('caesar');
@@ -286,6 +287,7 @@ export default function Cryptography() {
             )}
           </div>
         </div>
+        <CodePanel category="cryptography" algorithm={activeTab()} />
       </div>
     </main>
   );

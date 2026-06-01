@@ -1,4 +1,5 @@
 import { createSignal } from 'solid-js';
+import CodePanel from '../components/CodePanel';
 
 export default function StringsAdvanced() {
   const [activeTab, setActiveTab] = createSignal('suffix');
@@ -357,6 +358,8 @@ export default function StringsAdvanced() {
             )}
           </div>
         </div>
+
+        <CodePanel category="stringsAdvanced" algorithm={activeTab()} />
       </div>
     </main>
   );

@@ -1,4 +1,5 @@
 import { createSignal } from 'solid-js';
+import CodePanel from '../components/CodePanel';
 
 export default function RandomizedAlgorithms() {
   const [activeTab, setActiveTab] = createSignal('quickselect');
@@ -345,6 +346,8 @@ export default function RandomizedAlgorithms() {
             )}
           </div>
         </div>
+
+        <CodePanel category="randomized" algorithm={activeTab()} />
       </div>
     </main>
   );

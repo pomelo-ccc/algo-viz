@@ -1,4 +1,5 @@
 import { createSignal } from 'solid-js';
+import CodePanel from '../components/CodePanel';
 
 export default function NLP() {
   const [activeTab, setActiveTab] = createSignal('wordfreq');
@@ -296,6 +297,7 @@ export default function NLP() {
             )}
           </div>
         </div>
+        <CodePanel category="nlp" algorithm={activeTab()} />
       </div>
     </main>
   );

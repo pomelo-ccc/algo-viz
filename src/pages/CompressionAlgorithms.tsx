@@ -1,4 +1,5 @@
 import { createSignal } from 'solid-js';
+import CodePanel from '../components/CodePanel';
 
 export default function CompressionAlgorithms() {
   const [activeTab, setActiveTab] = createSignal('rle');
@@ -330,6 +331,8 @@ export default function CompressionAlgorithms() {
             )}
           </div>
         </div>
+
+        <CodePanel category="compression" algorithm={activeTab()} />
       </div>
     </main>
   );

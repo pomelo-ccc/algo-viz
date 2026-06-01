@@ -1,4 +1,5 @@
 import { createSignal } from 'solid-js';
+import CodePanel from '../components/CodePanel';
 
 interface Process {
   id: number;
@@ -313,6 +314,7 @@ export default function OperatingSystems() {
             )}
           </div>
         </div>
+        <CodePanel category="operatingsystems" algorithm={activeTab()} />
       </div>
     </main>
   );

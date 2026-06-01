@@ -1,4 +1,5 @@
 import { createSignal } from 'solid-js';
+import CodePanel from '../components/CodePanel';
 
 export default function MachineLearning() {
   const [activeTab, setActiveTab] = createSignal('kmeans');
@@ -381,6 +382,7 @@ export default function MachineLearning() {
             )}
           </div>
         </div>
+        <CodePanel category="machinelearning" algorithm={activeTab()} />
       </div>
     </main>
   );
