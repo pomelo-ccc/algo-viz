@@ -1,4 +1,18 @@
-import { createSignal } from 'solid-js';
+import { createSignal, onMount, onCleanup } from 'solid-js';
+import CodePanel from '../components/CodePanel';
+import ControlPanel from '../components/ControlPanel';
+import { AnimationController, type AnimStep } from '../utils/animation';
+
+interface KMPState {
+  lps: number[];
+  lpsIndex: number;
+  lpsLen: number;
+  lpsBuilding: boolean;
+  textIndex: number;
+  patternIndex: number;
+  matches: number[];
+  phase: 'lps' | 'search' | 'done';
+}
 
 export default function Strings() {
   const [text, setText] = createSignal('ABABDABACDABABCABAB');
@@ -6,97 +20,203 @@ export default function Strings() {
   const [isRunning, setIsRunning] = createSignal(false);
   const [steps, setSteps] = createSignal<string[]>([]);
   const [speed, setSpeed] = createSignal(50);
-  const [lpsArray, setLpsArray] = createSignal<number[]>([]);
-  const [currentMatch, setCurrentMatch] = createSignal<{ textIdx: number; patIdx: number } | null>(null);
-  const [matchResult, setMatchResult] = createSignal<number[]>([]);
+  const [currentStep, setCurrentStep] = createSignal(-1);
+  const [totalSteps, setTotalSteps] = createSignal(0);
+  const [state, setState] = createSignal<KMPState>({
+    lps: [],
+    lpsIndex: -1,
+    lpsLen: 0,
+    lpsBuilding: false,
+    textIndex: -1,
+    patternIndex: -1,
+    matches: [],
+    phase: 'lps',
+  });
+  let controller: AnimationController<KMPState>;
 
-  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-  const addStep = (text: string) => setSteps(prev => [text, ...prev].slice(0, 30));
+  onMount(() => {
+    controller = new AnimationController<KMPState>({ speed: speed() });
+    controller.setCallbacks(
+      (step: AnimStep<KMPState>) => {
+        setState(step.state);
+        setSteps(prev => [step.description, ...prev].slice(0, 30));
+      },
+      (s, index, total) => {
+        setCurrentStep(index);
+        setTotalSteps(total);
+      }
+    );
 
-  const buildLPS = async (pat: string): Promise<number[]> => {
-    const lps = new Array(pat.length).fill(0);
+    const handleKeydown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+      if (e.key === ' ' || e.key === 'Space') {
+        e.preventDefault();
+        if (isRunning()) pause();
+        else play();
+      }
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        controller.stepBackward();
+      }
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        controller.stepForward();
+      }
+      if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault();
+        reset();
+      }
+    };
+    window.addEventListener('keydown', handleKeydown);
+
+    onCleanup(() => {
+      controller.destroy();
+      window.removeEventListener('keydown', handleKeydown);
+    });
+  });
+
+  const buildKMPSteps = (t: string, p: string): AnimStep<KMPState>[] => {
+    const steps: AnimStep<KMPState>[] = [];
+
+    if (p.length === 0) {
+      steps.push({ state: { ...state(), phase: 'done' }, description: '模式串为空' });
+      return steps;
+    }
+
+    const lps: number[] = new Array(p.length).fill(0);
+    steps.push({
+      state: { lps: [...lps], lpsIndex: 0, lpsLen: 0, lpsBuilding: true, textIndex: -1, patternIndex: -1, matches: [], phase: 'lps' },
+      description: '开始构建 LPS 数组',
+    });
+
     let len = 0;
     let i = 1;
-    addStep('构建 LPS (Longest Prefix Suffix) 数组');
-    while (i < pat.length) {
-      if (!isRunning()) break;
-      if (pat[i] === pat[len]) {
+    while (i < p.length) {
+      if (p[i] === p[len]) {
         len++;
         lps[i] = len;
-        addStep(`pat[${i}] == pat[${len - 1}], lps[${i}] = ${len}`);
+        steps.push({
+          state: { lps: [...lps], lpsIndex: i, lpsLen: len, lpsBuilding: true, textIndex: -1, patternIndex: -1, matches: [], phase: 'lps' },
+          description: `pat[${i}]='${p[i]}' == pat[${len - 1}]='${p[len - 1]}', lps[${i}] = ${len}`,
+        });
         i++;
       } else {
         if (len !== 0) {
+          const oldLen = len;
           len = lps[len - 1];
-          addStep(`不匹配，len = lps[${len}] = ${lps[len]}`);
+          steps.push({
+            state: { lps: [...lps], lpsIndex: i, lpsLen: len, lpsBuilding: true, textIndex: -1, patternIndex: -1, matches: [], phase: 'lps' },
+            description: `不匹配, len = lps[${oldLen - 1}] = ${len}`,
+          });
         } else {
           lps[i] = 0;
-          addStep(`pat[${i}] != pat[0], lps[${i}] = 0`);
+          steps.push({
+            state: { lps: [...lps], lpsIndex: i, lpsLen: 0, lpsBuilding: true, textIndex: -1, patternIndex: -1, matches: [], phase: 'lps' },
+            description: `pat[${i}]='${p[i]}' != pat[0], lps[${i}] = 0`,
+          });
           i++;
         }
       }
-      await sleep(Math.max(1, 101 - speed()) * 5);
     }
-    return lps;
+
+    steps.push({
+      state: { lps: [...lps], lpsIndex: -1, lpsLen: 0, lpsBuilding: false, textIndex: -1, patternIndex: -1, matches: [], phase: 'search' },
+      description: 'LPS 数组构建完成, 开始搜索',
+    });
+
+    let ti = 0, pj = 0;
+    const matches: number[] = [];
+    while (ti < t.length) {
+      steps.push({
+        state: { lps: [...lps], lpsIndex: -1, lpsLen: 0, lpsBuilding: false, textIndex: ti, patternIndex: pj, matches: [...matches], phase: 'search' },
+        description: `比较 text[${ti}]='${t[ti]}' 和 pattern[${pj}]='${p[pj] || ''}'`,
+      });
+
+      if (t[ti] === p[pj]) {
+        ti++;
+        pj++;
+        if (pj === p.length) {
+          const matchIdx = ti - pj;
+          matches.push(matchIdx);
+          steps.push({
+            state: { lps: [...lps], lpsIndex: -1, lpsLen: 0, lpsBuilding: false, textIndex: ti, patternIndex: pj, matches: [...matches], phase: 'search' },
+            description: `找到匹配! 起始位置: ${matchIdx}`,
+          });
+          pj = lps[pj - 1];
+        }
+      } else {
+        if (pj !== 0) {
+          pj = lps[pj - 1];
+          steps.push({
+            state: { lps: [...lps], lpsIndex: -1, lpsLen: 0, lpsBuilding: false, textIndex: ti, patternIndex: pj, matches: [...matches], phase: 'search' },
+            description: `不匹配, j = lps[${pj}] = ${pj}`,
+          });
+        } else {
+          ti++;
+        }
+      }
+    }
+
+    steps.push({
+      state: { lps: [...lps], lpsIndex: -1, lpsLen: 0, lpsBuilding: false, textIndex: -1, patternIndex: -1, matches: [...matches], phase: 'done' },
+      description: matches.length === 0 ? '未找到匹配' : `搜索完成, 共找到 ${matches.length} 处匹配`,
+    });
+
+    return steps;
   };
 
-  const kmpSearch = async () => {
+  const start = () => {
     if (isRunning()) return;
     setIsRunning(true);
     setSteps([]);
-    setMatchResult([]);
+
     const t = text();
     const p = pattern();
-
-    if (p.length === 0 || p.length > t.length) {
-      addStep('模式串为空或长于文本串');
+    const animSteps = buildKMPSteps(t, p);
+    controller.setSteps(animSteps);
+    controller.setSpeed(speed());
+    controller.play().then(() => {
       setIsRunning(false);
-      return;
-    }
+      setSteps(prev => ['匹配完成', ...prev]);
+    });
+  };
 
-    const lps = await buildLPS(p);
-    setLpsArray(lps);
-    addStep('LPS 数组构建完成');
-
-    let i = 0, j = 0;
-    const matches: number[] = [];
-    while (i < t.length) {
-      if (!isRunning()) break;
-      setCurrentMatch({ textIdx: i, patIdx: j });
-      await sleep(Math.max(1, 101 - speed()) * 10);
-      if (t[i] === p[j]) {
-        addStep(`匹配: text[${i}] = '${t[i]}' == pattern[${j}] = '${p[j]}'`);
-        i++; j++;
-      }
-      if (j === p.length) {
-        const matchIdx = i - j;
-        matches.push(matchIdx);
-        setMatchResult([...matches]);
-        addStep(`找到匹配! 起始位置: ${matchIdx}`);
-        j = lps[j - 1];
-      } else if (i < t.length && t[i] !== p[j]) {
-        addStep(`不匹配: text[${i}] = '${t[i]}' != pattern[${j}] = '${p[j]}'`);
-        if (j !== 0) {
-          j = lps[j - 1];
-          addStep(`j = lps[${j}] = ${j}`);
-        } else {
-          i++;
-        }
-      }
-      await sleep(Math.max(1, 101 - speed()) * 5);
+  const play = () => {
+    if (controller.isAtEnd() || controller.isEmpty()) {
+      start();
+    } else {
+      setIsRunning(true);
+      controller.play().then(() => setIsRunning(false));
     }
-    if (matches.length === 0) addStep('未找到匹配');
-    else addStep(`搜索完成，共找到 ${matches.length} 处匹配`);
-    setCurrentMatch(null);
+  };
+
+  const pause = () => {
+    controller.pause();
     setIsRunning(false);
   };
 
-  const resetKMP = () => {
+  const reset = () => {
+    controller.pause();
+    setIsRunning(false);
+    setState({
+      lps: [],
+      lpsIndex: -1,
+      lpsLen: 0,
+      lpsBuilding: false,
+      textIndex: -1,
+      patternIndex: -1,
+      matches: [],
+      phase: 'lps',
+    });
     setSteps([]);
-    setLpsArray([]);
-    setMatchResult([]);
-    setCurrentMatch(null);
+    setCurrentStep(-1);
+    setTotalSteps(0);
   };
+
+  const handleStepForward = () => { if (!isRunning()) controller.stepForward(); };
+  const handleStepBackward = () => { if (!isRunning()) controller.stepBackward(); };
+  const handleSpeedChange = (newSpeed: number) => { setSpeed(newSpeed); controller.setSpeed(newSpeed); };
 
   return (
     <main class="visualization-page">
@@ -111,7 +231,7 @@ export default function Strings() {
             <input
               type="text"
               value={text()}
-              onInput={e => { setText(e.currentTarget.value); resetKMP(); }}
+              onInput={e => { setText(e.currentTarget.value); reset(); }}
               style={{ padding: '0.5rem', border: '1px solid var(--border)', 'font-family': 'var(--font-mono)', width: '250px' }}
             />
           </div>
@@ -120,35 +240,32 @@ export default function Strings() {
             <input
               type="text"
               value={pattern()}
-              onInput={e => { setPattern(e.currentTarget.value); resetKMP(); }}
+              onInput={e => { setPattern(e.currentTarget.value); reset(); }}
               style={{ padding: '0.5rem', border: '1px solid var(--border)', 'font-family': 'var(--font-mono)', width: '150px' }}
             />
           </div>
-          <div class="controls-group">
-            <label>速度</label>
-            <input type="range" min="1" max="100" value={speed()} onInput={e => setSpeed(parseInt(e.currentTarget.value))} />
-          </div>
-          <div class="controls-group">
-            <button class="btn btn-primary" onClick={kmpSearch} disabled={isRunning()}>
-              {isRunning() ? '运行中...' : '开始匹配'}
-            </button>
-          </div>
         </div>
 
-        <div class="canvas-container" style={{ padding: '2rem' }}>
+        <div class="canvas-container canvas-container-enhanced" style={{ padding: '2rem' }}>
           <div style={{ 'margin-bottom': '1.5rem' }}>
             <h4 style={{ 'font-size': '0.8rem', color: 'var(--text-tertiary)', 'text-transform': 'uppercase', 'letter-spacing': '0.05em', 'margin-bottom': '0.5rem' }}>文本串</h4>
             <div style={{ display: 'flex', gap: '2px', 'flex-wrap': 'wrap' }}>
               {text().split('').map((char, i) => {
-                const isMatch = matchResult().some(m => i >= m && i < m + pattern().length);
-                const isCurrent = currentMatch() && i === currentMatch()!.textIdx;
+                const isMatch = state().matches.some(m => i >= m && i < m + pattern().length);
+                const isCurrent = i === state().textIndex;
+                const isInPattern = state().textIndex >= 0 && state().patternIndex > 0 && i >= state().textIndex - state().patternIndex && i <= state().textIndex;
+                let bg = '#f5f5f5';
+                let color = '#1a1a1a';
+                if (isMatch) { bg = '#666666'; color = '#fff'; }
+                if (isInPattern && !isMatch) { bg = '#cccccc'; }
+                if (isCurrent) { bg = '#1a1a1a'; color = '#fff'; }
                 return (
                   <div style={{
-                    width: '28px', height: '28px', display: 'flex', 'align-items': 'center', 'justify-content': 'center',
-                    background: isMatch ? '#666666' : isCurrent ? '#1a1a1a' : '#f5f5f5',
-                    color: isMatch || isCurrent ? '#fff' : '#1a1a1a',
-                    'font-family': 'var(--font-mono)', 'font-size': '0.85rem',
+                    width: '32px', height: '32px', display: 'flex', 'align-items': 'center', 'justify-content': 'center',
+                    background: bg, color, 'font-family': 'var(--font-mono)', 'font-size': '0.85rem',
                     border: '1px solid var(--border)',
+                    'box-shadow': isCurrent ? '0 0 12px rgba(0, 0, 0, 0.4)' : 'none',
+                    transition: 'all 0.2s ease',
                   }}>{char}</div>
                 );
               })}
@@ -158,42 +275,75 @@ export default function Strings() {
           <div style={{ 'margin-bottom': '1.5rem' }}>
             <h4 style={{ 'font-size': '0.8rem', color: 'var(--text-tertiary)', 'text-transform': 'uppercase', 'letter-spacing': '0.05em', 'margin-bottom': '0.5rem' }}>模式串</h4>
             <div style={{ display: 'flex', gap: '2px' }}>
-              {pattern().split('').map((char, i) => (
-                <div style={{
-                  width: '28px', height: '28px', display: 'flex', 'align-items': 'center', 'justify-content': 'center',
-                  background: currentMatch() && i === currentMatch()!.patIdx ? '#1a1a1a' : '#f5f5f5',
-                  color: currentMatch() && i === currentMatch()!.patIdx ? '#fff' : '#1a1a1a',
-                  'font-family': 'var(--font-mono)', 'font-size': '0.85rem',
-                  border: '1px solid var(--border)',
-                }}>{char}</div>
-              ))}
+              {pattern().split('').map((char, i) => {
+                const isCurrent = i === state().patternIndex && state().phase === 'search';
+                return (
+                  <div style={{
+                    width: '32px', height: '32px', display: 'flex', 'align-items': 'center', 'justify-content': 'center',
+                    background: isCurrent ? '#1a1a1a' : '#f5f5f5',
+                    color: isCurrent ? '#fff' : '#1a1a1a',
+                    'font-family': 'var(--font-mono)', 'font-size': '0.85rem',
+                    border: '1px solid var(--border)',
+                    'box-shadow': isCurrent ? '0 0 12px rgba(0, 0, 0, 0.4)' : 'none',
+                    transition: 'all 0.2s ease',
+                  }}>{char}</div>
+                );
+              })}
             </div>
           </div>
 
-          {lpsArray().length > 0 && (
+          {state().lps.length > 0 && (
             <div>
               <h4 style={{ 'font-size': '0.8rem', color: 'var(--text-tertiary)', 'text-transform': 'uppercase', 'letter-spacing': '0.05em', 'margin-bottom': '0.5rem' }}>LPS 数组</h4>
               <div style={{ display: 'flex', gap: '2px', 'margin-bottom': '0.25rem' }}>
-                {pattern().split('').map((char, i) => (
-                  <div style={{
-                    width: '28px', height: '28px', display: 'flex', 'align-items': 'center', 'justify-content': 'center',
-                    background: '#f5f5f5', 'font-family': 'var(--font-mono)', 'font-size': '0.85rem',
-                    border: '1px solid var(--border)',
-                  }}>{char}</div>
-                ))}
+                {pattern().split('').map((char, i) => {
+                  const isCurrent = i === state().lpsIndex && state().lpsBuilding;
+                  return (
+                    <div style={{
+                      width: '32px', height: '32px', display: 'flex', 'align-items': 'center', 'justify-content': 'center',
+                      background: isCurrent ? '#1a1a1a' : '#f5f5f5',
+                      color: isCurrent ? '#fff' : '#1a1a1a',
+                      'font-family': 'var(--font-mono)', 'font-size': '0.85rem',
+                      border: '1px solid var(--border)',
+                      'box-shadow': isCurrent ? '0 0 12px rgba(0, 0, 0, 0.4)' : 'none',
+                      transition: 'all 0.2s ease',
+                    }}>{char}</div>
+                  );
+                })}
               </div>
               <div style={{ display: 'flex', gap: '2px' }}>
-                {lpsArray().map((val, i) => (
-                  <div style={{
-                    width: '28px', height: '28px', display: 'flex', 'align-items': 'center', 'justify-content': 'center',
-                    background: '#e5e5e5', 'font-family': 'var(--font-mono)', 'font-size': '0.85rem',
-                    border: '1px solid var(--border)', color: 'var(--text-secondary)',
-                  }}>{val}</div>
-                ))}
+                {state().lps.map((val, i) => {
+                  const isCurrent = i === state().lpsIndex && state().lpsBuilding;
+                  return (
+                    <div style={{
+                      width: '32px', height: '32px', display: 'flex', 'align-items': 'center', 'justify-content': 'center',
+                      background: isCurrent ? '#1a1a1a' : '#e5e5e5',
+                      color: isCurrent ? '#fff' : 'var(--text-secondary)',
+                      'font-family': 'var(--font-mono)', 'font-size': '0.85rem',
+                      border: '1px solid var(--border)',
+                      'box-shadow': isCurrent ? '0 0 12px rgba(0, 0, 0, 0.4)' : 'none',
+                      transition: 'all 0.2s ease',
+                    }}>{val}</div>
+                  );
+                })}
               </div>
             </div>
           )}
         </div>
+
+        <ControlPanel
+          isRunning={isRunning()}
+          speed={speed()}
+          currentStep={currentStep()}
+          totalSteps={totalSteps()}
+          onPlay={play}
+          onPause={pause}
+          onReset={reset}
+          onStepForward={handleStepForward}
+          onStepBackward={handleStepBackward}
+          onSpeedChange={handleSpeedChange}
+          onGenerate={reset}
+        />
 
         <div class="info-panel">
           <h3>KMP 算法原理</h3>
@@ -222,12 +372,14 @@ export default function Strings() {
           <h3>执行步骤</h3>
           <div>
             {steps().length === 0 ? (
-              <div class="step-item">输入文本串和模式串，点击"开始匹配"</div>
+              <div class="step-item">输入文本串和模式串, 点击播放按钮开始匹配</div>
             ) : (
               steps().map(step => <div class="step-item active">{step}</div>)
             )}
           </div>
         </div>
+
+        <CodePanel category="strings" algorithm="kmp" />
       </div>
     </main>
   );
