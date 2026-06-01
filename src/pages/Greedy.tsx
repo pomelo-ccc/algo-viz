@@ -1,139 +1,268 @@
-import { createSignal } from 'solid-js';
-import Dropdown from '../components/Dropdown';
+import { createSignal, onMount, onCleanup } from 'solid-js';
+import { greedyCodes, languageLabels, type Language } from '../utils/codeData';
 import CodePanel from '../components/CodePanel';
+import ControlPanel from '../components/ControlPanel';
+import { AnimationController, type AnimStep } from '../utils/animation';
 
 interface Activity {
   id: number;
   start: number;
   end: number;
   selected: boolean;
+  considering: boolean;
+  rejected: boolean;
 }
+
+interface KnapsackItem {
+  id: number;
+  weight: number;
+  value: number;
+  ratio: number;
+  taken: number;
+  considering: boolean;
+}
+
+type GreedyState =
+  | { type: 'activity'; activities: Activity[]; currentId: number; lastEnd: number }
+  | { type: 'knapsack'; items: KnapsackItem[]; currentId: number; remaining: number; totalValue: number; totalWeight: number };
 
 export default function Greedy() {
   const [activeTab, setActiveTab] = createSignal('activity');
   const [isRunning, setIsRunning] = createSignal(false);
   const [steps, setSteps] = createSignal<string[]>([]);
   const [speed, setSpeed] = createSignal(50);
-
-  // Activity Selection
-  const [activities, setActivities] = createSignal<Activity[]>([
-    { id: 1, start: 1, end: 4, selected: false },
-    { id: 2, start: 3, end: 5, selected: false },
-    { id: 3, start: 0, end: 6, selected: false },
-    { id: 4, start: 5, end: 7, selected: false },
-    { id: 5, start: 3, end: 8, selected: false },
-    { id: 6, start: 5, end: 9, selected: false },
-    { id: 7, start: 6, end: 10, selected: false },
-    { id: 8, start: 8, end: 11, selected: false },
-  ]);
-
-  // Fractional Knapsack
-  const [knapsackItems, setKnapsackItems] = createSignal([
-    { id: 1, weight: 10, value: 60, ratio: 6, taken: 0 },
-    { id: 2, weight: 20, value: 100, ratio: 5, taken: 0 },
-    { id: 3, weight: 30, value: 120, ratio: 4, taken: 0 },
-  ]);
+  const [lang, setLang] = createSignal<Language>('javascript');
+  const [currentStep, setCurrentStep] = createSignal(-1);
+  const [totalSteps, setTotalSteps] = createSignal(0);
+  const [state, setState] = createSignal<GreedyState>({
+    type: 'activity',
+    activities: [],
+    currentId: -1,
+    lastEnd: -1,
+  });
   const [knapsackCapacity, setKnapsackCapacity] = createSignal(50);
-  const [currentValue, setCurrentValue] = createSignal(0);
-  const [currentWeight, setCurrentWeight] = createSignal(0);
+  let controller: AnimationController<GreedyState>;
 
-  // Huffman Coding
-  const [huffmanChars, setHuffmanChars] = createSignal([
-    { char: 'a', freq: 5, code: '' },
-    { char: 'b', freq: 9, code: '' },
-    { char: 'c', freq: 12, code: '' },
-    { char: 'd', freq: 13, code: '' },
-    { char: 'e', freq: 16, code: '' },
-    { char: 'f', freq: 45, code: '' },
-  ]);
+  onMount(() => {
+    controller = new AnimationController<GreedyState>({ speed: speed() });
+    controller.setCallbacks(
+      (step: AnimStep<GreedyState>) => {
+        setState(step.state);
+        setSteps(prev => [step.description, ...prev].slice(0, 30));
+      },
+      (s, index, total) => {
+        setCurrentStep(index);
+        setTotalSteps(total);
+      }
+    );
 
-  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-  const addStep = (text: string) => setSteps(prev => [text, ...prev].slice(0, 30));
+    const handleKeydown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+      if (e.key === ' ' || e.key === 'Space') {
+        e.preventDefault();
+        if (isRunning()) pause();
+        else play();
+      }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); controller.stepBackward(); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); controller.stepForward(); }
+      if (e.key === 'r' || e.key === 'R') { e.preventDefault(); reset(); }
+    };
+    window.addEventListener('keydown', handleKeydown);
 
-  const resetActivities = () => {
-    setActivities(prev => prev.map(a => ({ ...a, selected: false })));
-    setSteps([]);
-  };
+    onCleanup(() => {
+      controller.destroy();
+      window.removeEventListener('keydown', handleKeydown);
+    });
 
-  const runActivitySelection = async () => {
-    if (isRunning()) return;
-    setIsRunning(true);
-    setSteps([]);
-    addStep('活动选择问题: 选择最多不重叠的活动');
+    reset();
+  });
 
-    const sorted = [...activities()].sort((a, b) => a.end - b.end);
-    const selectedIds = new Set<number>();
+  const defaultActivities: Activity[] = [
+    { id: 1, start: 1, end: 4, selected: false, considering: false, rejected: false },
+    { id: 2, start: 3, end: 5, selected: false, considering: false, rejected: false },
+    { id: 3, start: 0, end: 6, selected: false, considering: false, rejected: false },
+    { id: 4, start: 5, end: 7, selected: false, considering: false, rejected: false },
+    { id: 5, start: 3, end: 8, selected: false, considering: false, rejected: false },
+    { id: 6, start: 5, end: 9, selected: false, considering: false, rejected: false },
+    { id: 7, start: 6, end: 10, selected: false, considering: false, rejected: false },
+    { id: 8, start: 8, end: 11, selected: false, considering: false, rejected: false },
+  ];
+
+  const defaultItems: KnapsackItem[] = [
+    { id: 1, weight: 10, value: 60, ratio: 6, taken: 0, considering: false },
+    { id: 2, weight: 20, value: 100, ratio: 5, taken: 0, considering: false },
+    { id: 3, weight: 30, value: 120, ratio: 4, taken: 0, considering: false },
+  ];
+
+  const buildActivitySteps = (activities: Activity[]): AnimStep<GreedyState>[] => {
+    const steps: AnimStep<GreedyState>[] = [];
+    const sorted = [...activities].sort((a, b) => a.end - b.end);
+    const updated: Activity[] = activities.map(a => ({ ...a, selected: false, considering: false, rejected: false }));
     let lastEnd = -1;
+    const selectedIds: number[] = [];
+
+    steps.push({
+      state: { type: 'activity', activities: updated.map(a => ({ ...a })), currentId: -1, lastEnd },
+      description: '活动选择: 按结束时间排序后贪心选取',
+    });
 
     for (const activity of sorted) {
-      if (!isRunning()) return;
+      const idx = updated.findIndex(a => a.id === activity.id);
+      if (idx < 0) continue;
+
+      updated[idx].considering = true;
+      steps.push({
+        state: { type: 'activity', activities: updated.map(a => ({ ...a })), currentId: activity.id, lastEnd },
+        description: `检查活动 ${activity.id}: [${activity.start}, ${activity.end}], 当前结束时间 ${lastEnd}`,
+      });
+
       if (activity.start >= lastEnd) {
-        selectedIds.add(activity.id);
+        updated[idx].selected = true;
+        updated[idx].considering = false;
+        selectedIds.push(activity.id);
         lastEnd = activity.end;
-        addStep(`选择活动 ${activity.id}: [${activity.start}, ${activity.end}]`);
-        setActivities(prev => prev.map(a => selectedIds.has(a.id) ? { ...a, selected: true } : a));
-        await sleep(Math.max(1, 101 - speed()) * 15);
+        steps.push({
+          state: { type: 'activity', activities: updated.map(a => ({ ...a })), currentId: activity.id, lastEnd },
+          description: `选择活动 ${activity.id}: [${activity.start}, ${activity.end}]`,
+        });
+      } else {
+        updated[idx].rejected = true;
+        updated[idx].considering = false;
+        steps.push({
+          state: { type: 'activity', activities: updated.map(a => ({ ...a })), currentId: activity.id, lastEnd },
+          description: `跳过活动 ${activity.id}: 与已选活动冲突`,
+        });
       }
     }
 
-    addStep(`完成: 共选择 ${selectedIds.size} 个活动`);
-    setIsRunning(false);
+    steps.push({
+      state: { type: 'activity', activities: updated.map(a => ({ ...a })), currentId: -1, lastEnd },
+      description: `完成: 共选择 ${selectedIds.length} 个活动`,
+    });
+
+    return steps;
   };
 
-  const runFractionalKnapsack = async () => {
-    if (isRunning()) return;
-    setIsRunning(true);
-    setSteps([]);
-    addStep('分数背包问题: 按单位价值贪心选取');
-
-    const items = [...knapsackItems()].sort((a, b) => b.ratio - a.ratio);
-    let remaining = knapsackCapacity();
+  const buildKnapsackSteps = (items: KnapsackItem[], capacity: number): AnimStep<GreedyState>[] => {
+    const steps: AnimStep<GreedyState>[] = [];
+    const sorted = [...items].sort((a, b) => b.ratio - a.ratio);
+    const updated: KnapsackItem[] = items.map(i => ({ ...i, taken: 0, considering: false }));
+    let remaining = capacity;
     let totalValue = 0;
     let totalWeight = 0;
 
-    const updated = knapsackItems().map(item => ({ ...item, taken: 0 }));
+    steps.push({
+      state: { type: 'knapsack', items: updated.map(i => ({ ...i })), currentId: -1, remaining, totalValue, totalWeight },
+      description: `分数背包: 容量 ${capacity}, 按单位价值贪心`,
+    });
 
-    for (const item of items) {
-      if (!isRunning()) return;
-      if (remaining <= 0) break;
+    for (const item of sorted) {
+      const idx = updated.findIndex(i => i.id === item.id);
+      if (idx < 0) continue;
 
-      const take = Math.min(item.weight, remaining);
-      const itemIdx = updated.findIndex(i => i.id === item.id);
-      if (itemIdx >= 0) {
-        updated[itemIdx].taken = take;
+      updated[idx].considering = true;
+      steps.push({
+        state: { type: 'knapsack', items: updated.map(i => ({ ...i })), currentId: item.id, remaining, totalValue, totalWeight },
+        description: `检查物品 ${item.id}: 单位价值 ${item.ratio}, 重量 ${item.weight}, 价值 ${item.value}`,
+      });
+
+      if (remaining <= 0) {
+        updated[idx].considering = false;
+        break;
       }
 
+      const take = Math.min(item.weight, remaining);
+      updated[idx].taken = take;
+      updated[idx].considering = false;
       remaining -= take;
       totalValue += (take / item.weight) * item.value;
       totalWeight += take;
 
-      addStep(`选取物品 ${item.id}: 重量 ${take}/${item.weight}, 价值 ${(take / item.weight) * item.value}`);
-      setKnapsackItems([...updated]);
-      setCurrentValue(Math.round(totalValue));
-      setCurrentWeight(totalWeight);
-      await sleep(Math.max(1, 101 - speed()) * 15);
+      steps.push({
+        state: { type: 'knapsack', items: updated.map(i => ({ ...i })), currentId: item.id, remaining, totalValue, totalWeight },
+        description: `选取物品 ${item.id}: 重量 ${take}/${item.weight}, 增加价值 ${((take / item.weight) * item.value).toFixed(1)}`,
+      });
     }
 
-    addStep(`完成: 总重量 ${totalWeight}, 总价值 ${Math.round(totalValue)}`);
-    setIsRunning(false);
+    steps.push({
+      state: { type: 'knapsack', items: updated.map(i => ({ ...i })), currentId: -1, remaining, totalValue, totalWeight },
+      description: `完成: 总重量 ${totalWeight}, 总价值 ${Math.round(totalValue)}`,
+    });
+
+    return steps;
   };
 
-  const runHuffmanCoding = async () => {
+  const start = () => {
     if (isRunning()) return;
     setIsRunning(true);
     setSteps([]);
-    addStep('哈夫曼编码: 构建前缀树实现最优编码');
-    await sleep(500);
-    addStep('按频率构建最小堆，每次合并频率最小的两个节点');
-    await sleep(500);
-    addStep('哈夫曼编码树构建完成（简化演示）');
+
+    let animSteps: AnimStep<GreedyState>[] = [];
+    if (activeTab() === 'activity') {
+      animSteps = buildActivitySteps(defaultActivities);
+    } else if (activeTab() === 'knapsack') {
+      animSteps = buildKnapsackSteps(defaultItems, knapsackCapacity());
+    }
+
+    controller.setSteps(animSteps);
+    controller.setSpeed(speed());
+    controller.play().then(() => {
+      setIsRunning(false);
+      setSteps(prev => ['贪心算法完成', ...prev]);
+    });
+  };
+
+  const play = () => {
+    if (controller.isAtEnd() || controller.isEmpty()) {
+      start();
+    } else {
+      setIsRunning(true);
+      controller.play().then(() => setIsRunning(false));
+    }
+  };
+
+  const pause = () => { controller.pause(); setIsRunning(false); };
+
+  const reset = () => {
+    controller.pause();
     setIsRunning(false);
+    if (activeTab() === 'activity') {
+      setState({
+        type: 'activity',
+        activities: defaultActivities.map(a => ({ ...a, selected: false, considering: false, rejected: false })),
+        currentId: -1,
+        lastEnd: -1,
+      });
+    } else {
+      setState({
+        type: 'knapsack',
+        items: defaultItems.map(i => ({ ...i, taken: 0, considering: false })),
+        currentId: -1,
+        remaining: knapsackCapacity(),
+        totalValue: 0,
+        totalWeight: 0,
+      });
+    }
+    setSteps([]);
+    setCurrentStep(-1);
+    setTotalSteps(0);
+  };
+
+  const handleStepForward = () => { if (!isRunning()) controller.stepForward(); };
+  const handleStepBackward = () => { if (!isRunning()) controller.stepBackward(); };
+  const handleSpeedChange = (newSpeed: number) => { setSpeed(newSpeed); controller.setSpeed(newSpeed); };
+
+  const codeContent = () => {
+    const algoKey = activeTab() === 'activity' ? 'activity' : 'knapsack';
+    const code = greedyCodes[algoKey];
+    if (!code) return '// 暂无代码';
+    return code[lang()];
   };
 
   const tabs = [
     { id: 'activity', label: '活动选择' },
     { id: 'knapsack', label: '分数背包' },
-    { id: 'huffman', label: '哈夫曼编码' },
   ];
 
   return (
@@ -146,7 +275,6 @@ export default function Greedy() {
         <div style={{ display: 'flex', gap: '0', 'border-bottom': '1px solid var(--border)', 'margin-bottom': '2rem' }}>
           {tabs.map(tab => (
             <div
-              class="greedy-tab"
               style={{
                 padding: '0.75rem 1.5rem',
                 cursor: 'pointer',
@@ -157,7 +285,7 @@ export default function Greedy() {
                 'border-bottom': activeTab() === tab.id ? '1px solid var(--text-primary)' : '1px solid transparent',
                 'margin-bottom': '-1px',
               }}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => { setActiveTab(tab.id); reset(); }}
             >
               {tab.label}
             </div>
@@ -168,47 +296,69 @@ export default function Greedy() {
           <div>
             <div class="controls">
               <div class="controls-group">
-                <button class="btn" onClick={resetActivities}>重置</button>
-                <button class="btn btn-primary" onClick={runActivitySelection} disabled={isRunning()}>
-                  {isRunning() ? '运行中...' : '开始选择'}
-                </button>
+                <label>语言</label>
+                <select onChange={e => setLang(e.currentTarget.value as Language)} value={lang()} style={{ padding: '0.5rem', border: '1px solid var(--border)' }}>
+                  {Object.entries(languageLabels).map(([k, v]) => <option value={k}>{v}</option>)}
+                </select>
               </div>
             </div>
-            <div class="canvas-container" style={{ padding: '2rem', 'min-height': '300px' }}>
-              <div style={{ display: 'flex', 'flex-direction': 'column', gap: '1rem' }}>
-                {activities().map(activity => (
-                  <div style={{ display: 'flex', 'align-items': 'center', gap: '1rem' }}>
-                    <span style={{ width: '80px', 'font-size': '0.85rem', 'font-family': 'var(--font-mono)' }}>
-                      活动 {activity.id}
-                    </span>
-                    <div style={{
-                      position: 'relative',
-                      height: '32px',
-                      'flex-grow': '1',
-                      background: 'var(--bg-secondary)',
-                      border: '1px solid var(--border)',
-                    }}>
-                      <div style={{
-                        position: 'absolute',
-                        left: `${(activity.start / 12) * 100}%`,
-                        width: `${((activity.end - activity.start) / 12) * 100}%`,
-                        height: '100%',
-                        background: activity.selected ? '#1a1a1a' : '#cccccc',
-                        transition: 'background 0.3s ease',
-                        display: 'flex',
-                        'align-items': 'center',
-                        'justify-content': 'center',
-                        color: activity.selected ? '#fff' : '#1a1a1a',
-                        'font-size': '0.75rem',
-                        'font-family': 'var(--font-mono)',
-                      }}>
-                        [{activity.start}, {activity.end}]
-                      </div>
-                    </div>
+            <div class="canvas-container canvas-container-enhanced" style={{ padding: '2rem', 'min-height': '300px' }}>
+              {(() => {
+                const s = state();
+                if (s.type !== 'activity') return null;
+                return (
+                  <div style={{ display: 'flex', 'flex-direction': 'column', gap: '0.75rem' }}>
+                    {s.activities.map(activity => {
+                      const isCurrent = activity.id === s.currentId;
+                      let bg = activity.selected ? '#1a1a1a' : activity.rejected ? '#bbbbbb' : '#cccccc';
+                      let color = activity.selected ? '#fff' : '#1a1a1a';
+                      let shadow = '';
+                      if (isCurrent && activity.considering) {
+                        bg = activity.selected ? '#1a1a1a' : '#666666';
+                        shadow = '0 0 16px rgba(0, 0, 0, 0.5)';
+                      }
+                      return (
+                        <div style={{ display: 'flex', 'align-items': 'center', gap: '1rem' }}>
+                          <span style={{ width: '80px', 'font-size': '0.85rem', 'font-family': 'var(--font-mono)' }}>活动 {activity.id}</span>
+                          <div style={{
+                            position: 'relative', height: '36px', 'flex-grow': '1',
+                            background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+                          }}>
+                            <div style={{
+                              position: 'absolute',
+                              left: `${(activity.start / 12) * 100}%`,
+                              width: `${((activity.end - activity.start) / 12) * 100}%`,
+                              height: '100%',
+                              background: bg, color,
+                              transition: 'all 0.3s ease',
+                              display: 'flex', 'align-items': 'center', 'justify-content': 'center',
+                              'font-size': '0.75rem', 'font-family': 'var(--font-mono)',
+                              'box-shadow': shadow,
+                              opacity: activity.rejected && !activity.selected ? 0.4 : 1,
+                            }}>
+                              [{activity.start}, {activity.end}]
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                ))}
-              </div>
+                );
+              })()}
             </div>
+            <ControlPanel
+              isRunning={isRunning()}
+              speed={speed()}
+              currentStep={currentStep()}
+              totalSteps={totalSteps()}
+              onPlay={play}
+              onPause={pause}
+              onReset={reset}
+              onStepForward={handleStepForward}
+              onStepBackward={handleStepBackward}
+              onSpeedChange={handleSpeedChange}
+              onGenerate={reset}
+            />
             <div class="info-panel">
               <h3>活动选择问题</h3>
               <p>给定一组活动，每个活动有开始和结束时间。选择尽可能多的互不重叠的活动。</p>
@@ -226,97 +376,80 @@ export default function Greedy() {
             <div class="controls">
               <div class="controls-group">
                 <label>背包容量</label>
-                <input type="number" value={knapsackCapacity()} onChange={e => setKnapsackCapacity(parseInt(e.currentTarget.value) || 50)} style={{ width: '80px', padding: '0.5rem', border: '1px solid var(--border)' }} />
+                <input type="number" value={knapsackCapacity()} onChange={e => { setKnapsackCapacity(parseInt(e.currentTarget.value) || 50); reset(); }} style={{ width: '80px', padding: '0.5rem', border: '1px solid var(--border)' }} />
               </div>
-              <div class="controls-group">
-                <span>当前重量: {currentWeight()}</span>
-                <span>当前价值: {currentValue()}</span>
-              </div>
-              <div class="controls-group">
-                <button class="btn" onClick={() => { setKnapsackItems(prev => prev.map(i => ({ ...i, taken: 0 }))); setCurrentValue(0); setCurrentWeight(0); setSteps([]); }}>重置</button>
-                <button class="btn btn-primary" onClick={runFractionalKnapsack} disabled={isRunning()}>
-                  {isRunning() ? '运行中...' : '贪心求解'}
-                </button>
-              </div>
-            </div>
-            <div class="canvas-container" style={{ padding: '2rem', 'min-height': '200px' }}>
-              <div style={{ display: 'flex', 'flex-direction': 'column', gap: '1.5rem' }}>
-                {knapsackItems().map(item => (
-                  <div style={{ display: 'flex', 'align-items': 'center', gap: '1rem' }}>
-                    <span style={{ width: '80px', 'font-size': '0.85rem' }}>物品 {item.id}</span>
-                    <div style={{
-                      height: '40px',
-                      width: '200px',
-                      background: 'var(--bg-secondary)',
-                      border: '1px solid var(--border)',
-                      position: 'relative',
-                      overflow: 'hidden',
-                    }}>
-                      <div style={{
-                        height: '100%',
-                        width: `${(item.taken / item.weight) * 100}%`,
-                        background: '#1a1a1a',
-                        transition: 'width 0.5s ease',
-                      }} />
+              {(() => {
+                const s = state();
+                if (s.type !== 'knapsack') return null;
+                return (
+                  <>
+                    <div class="controls-group">
+                      <span style={{ 'font-size': '0.85rem' }}>当前重量: <strong>{s.totalWeight}</strong></span>
                     </div>
-                    <span style={{ 'font-size': '0.8rem', color: 'var(--text-secondary)' }}>
-                      重量: {item.weight}, 价值: {item.value}, 单位价值: {item.ratio}
-                    </span>
-                  </div>
-                ))}
-              </div>
+                    <div class="controls-group">
+                      <span style={{ 'font-size': '0.85rem' }}>当前价值: <strong>{Math.round(s.totalValue)}</strong></span>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
+            <div class="canvas-container canvas-container-enhanced" style={{ padding: '2rem', 'min-height': '300px' }}>
+              {(() => {
+                const s = state();
+                if (s.type !== 'knapsack') return null;
+                return (
+                  <div style={{ display: 'flex', 'flex-direction': 'column', gap: '1rem' }}>
+                    {s.items.map(item => {
+                      const isCurrent = item.id === s.currentId;
+                      const percent = item.weight > 0 ? (item.taken / item.weight) * 100 : 0;
+                      return (
+                        <div style={{ display: 'flex', 'flex-direction': 'column', gap: '0.5rem' }}>
+                          <div style={{ display: 'flex', 'align-items': 'center', gap: '1rem' }}>
+                            <span style={{ width: '100px', 'font-size': '0.85rem', 'font-family': 'var(--font-mono)' }}>物品 {item.id} (v/w={item.ratio})</span>
+                            <span style={{ 'font-size': '0.8rem', color: 'var(--text-secondary)' }}>w={item.weight} v={item.value}</span>
+                          </div>
+                          <div style={{
+                            position: 'relative', height: '32px',
+                            background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+                          }}>
+                            <div style={{
+                              position: 'absolute', left: '0', top: '0', bottom: '0',
+                              width: `${percent}%`,
+                              background: item.taken >= item.weight ? '#1a1a1a' : '#666666',
+                              transition: 'width 0.3s ease',
+                              display: 'flex', 'align-items': 'center', 'justify-content': 'center',
+                              color: '#fff', 'font-size': '0.75rem', 'font-family': 'var(--font-mono)',
+                              'box-shadow': isCurrent ? '0 0 12px rgba(0, 0, 0, 0.4)' : 'none',
+                            }}>
+                              {item.taken > 0 ? `已取 ${item.taken}` : ''}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+            <ControlPanel
+              isRunning={isRunning()}
+              speed={speed()}
+              currentStep={currentStep()}
+              totalSteps={totalSteps()}
+              onPlay={play}
+              onPause={pause}
+              onReset={reset}
+              onStepForward={handleStepForward}
+              onStepBackward={handleStepBackward}
+              onSpeedChange={handleSpeedChange}
+              onGenerate={reset}
+            />
             <div class="info-panel">
               <h3>分数背包问题</h3>
-              <p>给定物品的重量和价值，在背包容量限制下，可以取物品的一部分，求最大总价值。</p>
+              <p>每个物品可以部分装入背包，按单位价值（v/w）从高到低贪心选取。</p>
               <div class="complexity">
-                <div class="complexity-item"><div class="label">贪心策略</div><div class="value">按单位价值从高到低选取</div></div>
+                <div class="complexity-item"><div class="label">贪心策略</div><div class="value">按单位价值降序选取</div></div>
                 <div class="complexity-item"><div class="label">时间复杂度</div><div class="value">O(n log n)</div></div>
-                <div class="complexity-item"><div class="label">空间复杂度</div><div class="value">O(1)</div></div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab() === 'huffman' && (
-          <div>
-            <div class="controls">
-              <div class="controls-group">
-                <button class="btn btn-primary" onClick={runHuffmanCoding} disabled={isRunning()}>
-                  {isRunning() ? '运行中...' : '构建哈夫曼树'}
-                </button>
-              </div>
-            </div>
-            <div class="canvas-container" style={{ padding: '2rem', 'min-height': '200px' }}>
-              <div style={{ display: 'flex', gap: '2rem', 'justify-content': 'center', 'flex-wrap': 'wrap' }}>
-                {huffmanChars().map(c => (
-                  <div style={{
-                    display: 'flex',
-                    'flex-direction': 'column',
-                    'align-items': 'center',
-                    gap: '0.5rem',
-                    padding: '1.5rem',
-                    border: '1px solid var(--border)',
-                    'min-width': '80px',
-                  }}>
-                    <span style={{ 'font-size': '1.5rem', 'font-family': 'var(--font-mono)' }}>{c.char}</span>
-                    <span style={{ 'font-size': '0.8rem', color: 'var(--text-secondary)' }}>频率: {c.freq}</span>
-                    <span style={{
-                      'font-size': '0.75rem',
-                      color: 'var(--text-tertiary)',
-                      'font-family': 'var(--font-mono)',
-                    }}>编码: {c.code || '待生成'}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div class="info-panel">
-              <h3>哈夫曼编码</h3>
-              <p>通过构建最优前缀树，为高频字符分配短编码，低频字符分配长编码，实现数据压缩。</p>
-              <div class="complexity">
-                <div class="complexity-item"><div class="label">贪心策略</div><div class="value">每次合并频率最小的两个节点</div></div>
-                <div class="complexity-item"><div class="label">时间复杂度</div><div class="value">O(n log n)</div></div>
-                <div class="complexity-item"><div class="label">空间复杂度</div><div class="value">O(n)</div></div>
               </div>
             </div>
           </div>
@@ -326,14 +459,12 @@ export default function Greedy() {
           <h3>执行步骤</h3>
           <div>
             {steps().length === 0 ? (
-              <div class="step-item">选择标签页并点击"开始"查看贪心算法执行过程</div>
+              <div class="step-item">点击播放按钮开始贪心算法可视化</div>
             ) : (
               steps().map(step => <div class="step-item active">{step}</div>)
             )}
           </div>
         </div>
-
-        <CodePanel category="greedy" algorithm={activeTab()} />
       </div>
     </main>
   );
