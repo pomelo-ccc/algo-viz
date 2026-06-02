@@ -135,8 +135,9 @@ export class DoubleBufferedRenderer {
       }
 
       ctx.beginPath();
-      const radius = Math.min(3, bw / 2);
-      this.roundRect(ctx, x + 1, y, bw - 2, bh, radius);
+      const radius = Math.min(3, Math.max(0, bw / 2));
+      const rectW = Math.max(1, bw - 2);
+      this.roundRect(ctx, x + 1, y, rectW, bh, radius);
       ctx.fill();
 
       ctx.shadowBlur = 0;

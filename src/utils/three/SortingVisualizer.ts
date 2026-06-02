@@ -136,6 +136,31 @@ export class SortingVisualizer extends ThreeVisualizer {
     this.syncVisualStates();
   }
 
+  /**
+   * Update bar heights to reflect new array values during sorting
+   */
+  updateArray(values: number[]) {
+    if (values.length !== this.bars.length) return;
+    const newMax = Math.max(...values, 1);
+    for (let i = 0; i < this.bars.length; i++) {
+      const bar = this.bars[i];
+      const newValue = values[i];
+      const newH = (newValue / newMax) * this.barHeightScale + 0.2;
+      
+      // Update the bar's geometry height by scaling
+      const currentScaleY = bar.mesh.scale.y || 1;
+      const targetScaleY = newH / (bar.mesh.geometry as THREE.BoxGeometry).parameters.height;
+      bar.mesh.scale.y = targetScaleY;
+      
+      // Re-center vertically
+      bar.mesh.position.y = newH / 2;
+      
+      // Update stored value
+      bar.value = newValue;
+    }
+    this.maxValue = newMax;
+  }
+
   private syncVisualStates() {
     for (const bar of this.bars) {
       let targetColor: THREE.Color;

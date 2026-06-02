@@ -61,6 +61,8 @@ export default function Sorting() {
     controller.setCallbacks(
       (step: AnimStep<number[]>) => {
         if (viewMode() === '3d' && visualizer3D) {
+          // Update bar heights to reflect current array state
+          visualizer3D.updateArray(step.state);
           if (step.compare) {
             visualizer3D.highlight(step.compare, 'comparing');
           } else if (step.swap) {
