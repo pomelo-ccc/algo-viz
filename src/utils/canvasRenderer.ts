@@ -80,29 +80,33 @@ export class DoubleBufferedRenderer {
     this.offscreenCtx.fillRect(0, 0, width, height);
   }
 
-  render(state: RenderState, animate: boolean = false) {
+  render(state: RenderState) {
     const ctx = this.offscreenCtx;
     const width = this.offscreenCanvas.width / this.dpr;
     const height = this.offscreenCanvas.height / this.dpr;
 
+    // Dark background
     ctx.fillStyle = this.config.backgroundColor;
     ctx.fillRect(0, 0, width, height);
 
     const { array, comparing, swapping, sorted, pivot } = state;
     if (array.length === 0) return;
 
-    const barWidth = width / array.length;
-    const maxValue = Math.max(...array, 100);
-    const padding = 20;
+    const gap = 4;
+    const barWidth = (width - (array.length + 1) * gap) / array.length;
+    const maxValue = Math.max(...array, 1);
+    const padding = 40;
     const chartHeight = height - padding * 2;
 
+    // Draw bars
     for (let i = 0; i < array.length; i++) {
       const barHeight = (array[i] / maxValue) * chartHeight;
-      const x = i * barWidth;
-      const y = height - barHeight - padding;
-      const bw = barWidth - 2;
-      const bh = barHeight;
+      const x = gap + i * (barWidth + gap);
+      const y = height - padding - barHeight;
+      const bw = Math.max(1, barWidth);
+      const bh = Math.max(1, barHeight);
 
+      // Determine color based on state
       let color = this.config.barColor;
       let isActive = false;
 
@@ -112,53 +116,102 @@ export class DoubleBufferedRenderer {
         color = this.config.swappingColor;
         isActive = true;
       } else if (comparing.includes(i)) {
-        color = this.config.comparingColor;
+        // Alternate colors for comparing elements
+        const compareIndex = comparing.indexOf(i);
+        color = compareIndex === 0 ? this.config.comparingColor : '#f59e0b';
         isActive = true;
       } else if (pivot !== undefined && i === pivot) {
         color = this.config.pivotColor;
         isActive = true;
       }
 
+      // Draw top-rounded bar
+      ctx.save();
+      this.drawTopRoundedBar(ctx, x, y, bw, bh, Math.min(bw / 2, 8));
+
+      // Gradient fill
       if (this.config.gradientEnabled) {
         const gradient = ctx.createLinearGradient(x, y, x, y + bh);
-        gradient.addColorStop(0, color);
-        gradient.addColorStop(1, this.darkenColor(color, 0.15));
+        gradient.addColorStop(0, this.lightenColor(color, 0.2));
+        gradient.addColorStop(0.5, color);
+        gradient.addColorStop(1, this.darkenColor(color, 0.3));
         ctx.fillStyle = gradient;
       } else {
         ctx.fillStyle = color;
       }
-
-      if (this.config.glowEnabled && isActive) {
-        ctx.shadowColor = color;
-        ctx.shadowBlur = 12;
-        ctx.shadowOffsetY = 4;
-      }
-
-      ctx.beginPath();
-      const radius = Math.min(3, Math.max(0, bw / 2));
-      const rectW = Math.max(1, bw - 2);
-      this.roundRect(ctx, x + 1, y, rectW, bh, radius);
       ctx.fill();
 
-      ctx.shadowBlur = 0;
-      ctx.shadowOffsetY = 0;
-
-      if (bw > 8 && bh > 15) {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
-        ctx.fillRect(x + 2, y + 2, bw - 4, 2);
+      // Glow effect for active bars
+      if (this.config.glowEnabled && isActive) {
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 20;
+        ctx.shadowOffsetY = 0;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.shadowBlur = 0;
       }
+      ctx.restore();
     }
 
-    if (this.config.particleEnabled) {
-      this.renderParticles(ctx, width, height);
+    // Draw swap arrows between comparing elements
+    if (comparing.length >= 2) {
+      this.drawSwapArrows(ctx, array, comparing, maxValue, chartHeight, width, height, padding, gap, barWidth);
     }
 
+    // Copy to main canvas
     this.ctx.drawImage(this.offscreenCanvas, 0, 0, width * this.dpr, height * this.dpr);
+  }
 
-    this.particles = this.particles.filter(p => {
-      p.update();
-      return p.life > 0;
-    });
+  private drawTopRoundedBar(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h);
+    ctx.lineTo(x, y + h);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
+  private drawSwapArrows(ctx: CanvasRenderingContext2D, array: number[], comparing: number[], maxValue: number, chartHeight: number, width: number, height: number, padding: number, gap: number, barWidth: number) {
+    const [i, j] = comparing;
+    if (i === undefined || j === undefined || i === j) return;
+
+    const x1 = gap + i * (barWidth + gap) + barWidth / 2;
+    const x2 = gap + j * (barWidth + gap) + barWidth / 2;
+    const y1 = height - padding - (array[i] / maxValue) * chartHeight - 12;
+    const y2 = height - padding - (array[j] / maxValue) * chartHeight - 12;
+    const arrowY = Math.min(y1, y2) - 10;
+
+    ctx.save();
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 2;
+    ctx.fillStyle = '#fbbf24';
+
+    // Draw curved arrow from i to j
+    const midX = (x1 + x2) / 2;
+    const controlY = arrowY - 20;
+
+    // Arrow path
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.quadraticCurveTo(x1, controlY, midX, controlY);
+    ctx.quadraticCurveTo(x2, controlY, x2, y2);
+    ctx.stroke();
+
+    // Arrow head at j
+    const angle = Math.atan2(y2 - controlY, x2 - midX);
+    const headLen = 8;
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI / 6), y2 - headLen * Math.sin(angle - Math.PI / 6));
+    ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI / 6), y2 - headLen * Math.sin(angle + Math.PI / 6));
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
   }
 
   private roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -177,6 +230,14 @@ export class DoubleBufferedRenderer {
     const r = Math.max(0, (num >> 16) * (1 - amount));
     const g = Math.max(0, ((num >> 8) & 0x00ff) * (1 - amount));
     const b = Math.max(0, (num & 0x0000ff) * (1 - amount));
+    return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
+  }
+
+  private lightenColor(hex: string, amount: number): string {
+    const num = parseInt(hex.replace('#', ''), 16);
+    const r = Math.min(255, (num >> 16) + 255 * amount);
+    const g = Math.min(255, ((num >> 8) & 0x00ff) + 255 * amount);
+    const b = Math.min(255, (num & 0x0000ff) + 255 * amount);
     return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
   }
 
@@ -248,13 +309,13 @@ class Particle {
 export function createSortingRenderer(canvas: HTMLCanvasElement) {
   return new DoubleBufferedRenderer(canvas, {
     barColor: '#3b82f6',
-    comparingColor: '#06ffa5',
-    swappingColor: '#ff006e',
-    sortedColor: '#00e5ff',
-    pivotColor: '#8338ec',
-    backgroundColor: '#0a0e1a',
+    comparingColor: '#fbbf24',
+    swappingColor: '#ef4444',
+    sortedColor: '#0d9488',
+    pivotColor: '#8b5cf6',
+    backgroundColor: '#0a0e17',
     gradientEnabled: true,
     glowEnabled: true,
-    particleEnabled: true,
+    particleEnabled: false,
   });
 }
