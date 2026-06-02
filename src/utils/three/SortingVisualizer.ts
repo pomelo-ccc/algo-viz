@@ -180,7 +180,7 @@ export class SortingVisualizer extends ThreeVisualizer {
     for (const bar of this.bars) {
       let color: THREE.Color;
       let emissiveIntensity = 0.15;
-      let scaleY = 1;
+      let pulse = 1;
 
       switch (bar.state) {
         case 'idle':
@@ -189,17 +189,17 @@ export class SortingVisualizer extends ThreeVisualizer {
         case 'comparing':
           color = new THREE.Color(this.theme.highlight);
           emissiveIntensity = 0.6;
-          scaleY = 1.05;
+          pulse = 1.05;
           break;
         case 'swapping':
           color = new THREE.Color(this.theme.secondary);
           emissiveIntensity = 0.8;
-          scaleY = 1.08;
+          pulse = 1.08;
           break;
         case 'pivot':
           color = new THREE.Color(this.theme.accent);
           emissiveIntensity = 0.5;
-          scaleY = 1.06;
+          pulse = 1.06;
           break;
         case 'sorted':
           color = new THREE.Color(this.theme.primary);
@@ -210,7 +210,9 @@ export class SortingVisualizer extends ThreeVisualizer {
       bar.material.color.lerp(color, 0.3);
       bar.material.emissive.lerp(color, 0.3);
       bar.material.emissiveIntensity += (emissiveIntensity - bar.material.emissiveIntensity) * 0.3;
-      bar.mesh.scale.y += (scaleY - bar.mesh.scale.y) * 0.3;
+      // Pulse on x/z axes only; y scale is used for height animation
+      bar.mesh.scale.x += (pulse - bar.mesh.scale.x) * 0.3;
+      bar.mesh.scale.z += (pulse - bar.mesh.scale.z) * 0.3;
     }
   }
 
