@@ -1,9 +1,10 @@
-import { createSignal, createEffect, onMount, onCleanup, on } from 'solid-js';
+import { createSignal, onMount, onCleanup, createEffect } from 'solid-js';
 import { sortingCodes, languageLabels, type Language } from '../utils/codeData';
 import Dropdown from '../components/Dropdown';
 import CodePanel from '../components/CodePanel';
 import ControlPanel from '../components/ControlPanel';
 import { AnimationController, type AnimStep } from '../utils/animation';
+import { createSortingRenderer, type RenderState } from '../utils/canvasRenderer';
 import { SortingVisualizer } from '../utils/three/SortingVisualizer';
 import { DARK_THEME, LIGHT_THEME } from '../utils/three/ThreeVisualizer';
 
@@ -15,20 +16,22 @@ interface ComplexityInfo {
 }
 
 const complexityMap: Record<string, ComplexityInfo> = {
-  bubble: { avg: 'O(n²)', worst: 'O(n²)', space: 'O(1)', stability: '稳定' },
-  selection: { avg: 'O(n²)', worst: 'O(n²)', space: 'O(1)', stability: '不稳定' },
-  insertion: { avg: 'O(n²)', worst: 'O(n²)', space: 'O(1)', stability: '稳定' },
-  quick: { avg: 'O(n log n)', worst: 'O(n²)', space: 'O(log n)', stability: '不稳定' },
+  bubble: { avg: 'O(n\u00B2)', worst: 'O(n\u00B2)', space: 'O(1)', stability: '稳定' },
+  selection: { avg: 'O(n\u00B2)', worst: 'O(n\u00B2)', space: 'O(1)', stability: '不稳定' },
+  insertion: { avg: 'O(n\u00B2)', worst: 'O(n\u00B2)', space: 'O(1)', stability: '稳定' },
+  quick: { avg: 'O(n log n)', worst: 'O(n\u00B2)', space: 'O(log n)', stability: '不稳定' },
   merge: { avg: 'O(n log n)', worst: 'O(n log n)', space: 'O(n)', stability: '稳定' },
   heap: { avg: 'O(n log n)', worst: 'O(n log n)', space: 'O(1)', stability: '不稳定' },
-  shell: { avg: 'O(n log n)', worst: 'O(n²)', space: 'O(1)', stability: '不稳定' },
+  shell: { avg: 'O(n log n)', worst: 'O(n\u00B2)', space: 'O(1)', stability: '不稳定' },
   counting: { avg: 'O(n + k)', worst: 'O(n + k)', space: 'O(k)', stability: '稳定' },
   radix: { avg: 'O(d(n + k))', worst: 'O(d(n + k))', space: 'O(n + k)', stability: '稳定' },
 };
 
 export default function Sorting() {
-  let containerRef: HTMLDivElement | undefined;
-  let visualizer: SortingVisualizer | undefined;
+  let container3DRef: HTMLDivElement | undefined;
+  let canvas2DRef: HTMLCanvasElement | undefined;
+  let visualizer3D: SortingVisualizer | undefined;
+  let renderer2D: ReturnType<typeof createSortingRenderer> | undefined;
   let controller: AnimationController<number[]>;
   const [algorithm, setAlgorithm] = createSignal('bubble');
   const [arraySize, setArraySize] = createSignal(20);
@@ -39,38 +42,56 @@ export default function Sorting() {
   const [array, setArray] = createSignal<number[]>([]);
   const [currentStep, setCurrentStep] = createSignal(-1);
   const [totalSteps, setTotalSteps] = createSignal(0);
+  const [viewMode, setViewMode] = createSignal<'2d' | '3d'>('2d');
 
   onMount(() => {
-    if (!containerRef) return;
-    visualizer = new SortingVisualizer(containerRef, {
+    if (!container3DRef) return;
+
+    // Initialize 3D visualizer (lazy)
+    visualizer3D = new SortingVisualizer(container3DRef, {
       cameraPosition: [0, 8, 14],
       fov: 50,
     });
     const isDark = () => document.documentElement.getAttribute('data-theme') === 'dark';
-    visualizer.setTheme(isDark() ? DARK_THEME : LIGHT_THEME);
-    visualizer.start();
-    visualizer.generateRandomArray(arraySize());
+    visualizer3D.setTheme(isDark() ? DARK_THEME : LIGHT_THEME);
+    visualizer3D.start();
+
+    // Initialize 2D renderer
+    if (canvas2DRef) {
+      renderer2D = createSortingRenderer(canvas2DRef);
+    }
 
     const observer = new MutationObserver(() => {
-      visualizer?.setTheme(isDark() ? DARK_THEME : LIGHT_THEME);
+      visualizer3D?.setTheme(isDark() ? DARK_THEME : LIGHT_THEME);
     });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
     controller = new AnimationController<number[]>({ speed: speed() });
     controller.setCallbacks(
       (step: AnimStep<number[]>) => {
-        if (step.compare) {
-          visualizer?.highlight(step.compare, 'comparing');
-        } else if (step.swap) {
-          visualizer?.highlight(step.swap, 'swapping');
-        } else if (step.sorted && step.sorted.length > 0) {
-          visualizer?.markSorted(step.sorted);
-        } else {
-          visualizer?.highlight([], 'comparing');
+        if (viewMode() === '3d' && visualizer3D) {
+          if (step.compare) {
+            visualizer3D.highlight(step.compare, 'comparing');
+          } else if (step.swap) {
+            visualizer3D.highlight(step.swap, 'swapping');
+          } else if (step.sorted && step.sorted.length > 0) {
+            visualizer3D.markSorted(step.sorted);
+          } else {
+            visualizer3D.highlight([], 'comparing');
+          }
+        } else if (viewMode() === '2d' && renderer2D) {
+          const state: RenderState = {
+            array: step.state,
+            comparing: step.compare || [],
+            swapping: step.swap || [],
+            sorted: step.sorted || [],
+            pivot: step.pivot,
+          };
+          renderer2D.render(state);
         }
         setSteps(prev => [step.description, ...prev].slice(0, 30));
       },
-      (state, index, total) => {
+      (_state, index, total) => {
         setCurrentStep(index);
         setTotalSteps(total);
       }
@@ -79,10 +100,10 @@ export default function Sorting() {
     generateArray();
 
     const handleResize = () => {
-      if (visualizer && containerRef) {
-        const event = new Event('resize');
-        window.dispatchEvent(event);
+      if (renderer2D && canvas2DRef) {
+        renderer2D.resize();
       }
+      // 3D resize handled by ThreeVisualizer internally
     };
     window.addEventListener('resize', handleResize);
 
@@ -113,7 +134,8 @@ export default function Sorting() {
       observer.disconnect();
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('keydown', handleKeydown);
-      visualizer?.stop();
+      visualizer3D?.stop();
+      renderer2D?.destroy();
     });
   });
 
@@ -128,10 +150,30 @@ export default function Sorting() {
     setSteps([]);
     setCurrentStep(-1);
     setTotalSteps(0);
-    if (visualizer) {
-      visualizer.clearScene();
-      visualizer.generateRandomArray(arraySize());
+
+    if (viewMode() === '3d' && visualizer3D) {
+      visualizer3D.generateRandomArray(arraySize());
+    } else if (viewMode() === '2d' && renderer2D) {
+      renderer2D.render({ array: arr, comparing: [], swapping: [], sorted: [] });
     }
+  };
+
+  const toggleViewMode = () => {
+    const newMode = viewMode() === '2d' ? '3d' : '2d';
+    setViewMode(newMode);
+    // After switch, render the current array in the new mode
+    setTimeout(() => {
+      const arr = [...array()];
+      if (newMode === '3d' && visualizer3D) {
+        if (arr.length > 0) {
+          visualizer3D.setValues(arr);
+        } else {
+          visualizer3D.generateRandomArray(arraySize());
+        }
+      } else if (newMode === '2d' && renderer2D) {
+        renderer2D.render({ array: arr.length > 0 ? arr : [], comparing: [], swapping: [], sorted: [] });
+      }
+    }, 50);
   };
 
   const buildSteps = (arr: number[], algo: string) => {
@@ -413,14 +455,26 @@ export default function Sorting() {
           </div>
         </div>
 
-        <div class="canvas-container canvas-container-3d">
-          <div ref={el => { containerRef = el; }} class="three-container" />
-          <div class="three-hint">
+        <div class="canvas-container">
+          <div
+            ref={el => { container3DRef = el; }}
+            class="three-container"
+            style={{ display: viewMode() === '3d' ? 'block' : 'none' }}
+          />
+          <canvas
+            ref={el => { canvas2DRef = el; }}
+            class="sorting-canvas"
+            style={{ display: viewMode() === '2d' ? 'block' : 'none' }}
+          />
+          <div class="three-hint" style={{ display: viewMode() === '3d' ? 'flex' : 'none' }}>
             <span>3D VIEW</span>
             <span class="three-hint-divider">·</span>
             <span>拖拽旋转</span>
             <span class="three-hint-divider">·</span>
             <span>滚轮缩放</span>
+          </div>
+          <div class="three-hint" style={{ display: viewMode() === '2d' ? 'flex' : 'none' }}>
+            <span>2D VIEW</span>
           </div>
         </div>
 
@@ -436,6 +490,13 @@ export default function Sorting() {
           onStepBackward={handleStepBackward}
           onSpeedChange={handleSpeedChange}
           onGenerate={generateArray}
+          extraControls={[
+            {
+              label: viewMode() === '2d' ? '切换到 3D' : '切换到 2D',
+              onClick: toggleViewMode,
+              variant: 'secondary' as const,
+            },
+          ]}
         />
 
         <div class="info-panel">

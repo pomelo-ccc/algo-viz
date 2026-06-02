@@ -1,7 +1,7 @@
 /**
- * 排序算法 3D 可视化
- * 每个元素是 3D 立方体,高度映射值
- * 支持比较/交换的弹性插值动画
+ * Sorting 3D Visualizer
+ * Each element is a 3D bar, height maps to value.
+ * Bars stay in fixed positions; only height and color change during animation.
  */
 
 import * as THREE from 'three';
@@ -10,15 +10,14 @@ import { ThreeVisualizer, DARK_THEME, type VisualizerTheme } from './ThreeVisual
 export interface SortBar {
   index: number;
   value: number;
-  state: 'idle' | 'comparing' | 'swapping' | 'sorted' | 'pivot';
-  targetY: number;
-  currentY: number;
-  targetX: number;
-  currentX: number;
   mesh: THREE.Mesh;
   material: THREE.MeshStandardMaterial;
   edgeMaterial: THREE.LineBasicMaterial;
   edgeMesh: THREE.LineSegments;
+  originalHeight: number;
+  currentHeight: number;
+  targetHeight: number;
+  state: 'idle' | 'comparing' | 'swapping' | 'sorted' | 'pivot';
 }
 
 export class SortingVisualizer extends ThreeVisualizer {
@@ -29,11 +28,10 @@ export class SortingVisualizer extends ThreeVisualizer {
   private maxValue = 100;
   private barWidth = 0.6;
   private barGap = 0.15;
-  private barHeight = 4;
+  private barHeightScale = 4;
 
   protected onInit() {
     this.createEnvironment();
-    this.generateRandomArray(20);
   }
 
   protected onThemeChange(theme: VisualizerTheme) {
@@ -42,6 +40,13 @@ export class SortingVisualizer extends ThreeVisualizer {
     }
     if (this.grid) {
       (this.grid.material as THREE.LineBasicMaterial).color.set(theme.primary).multiplyScalar(0.3);
+    }
+    // Update idle colors for all bars
+    for (const bar of this.bars) {
+      if (bar.state === 'idle') {
+        bar.material.color.set(this.idleColor(bar.index));
+        bar.material.emissive.set(this.idleColor(bar.index));
+      }
     }
   }
 
@@ -66,39 +71,43 @@ export class SortingVisualizer extends ThreeVisualizer {
   }
 
   setValues(values: number[]) {
-    this.dispose();
+    this.clearBars();
     this.values = [...values];
-    this.maxValue = Math.max(...values);
+    this.maxValue = Math.max(...values, 1);
     this.createBars();
   }
 
   generateRandomArray(n: number) {
-    const arr = Array.from({ length: n }, (_, i) => Math.floor(Math.random() * 90) + 10);
+    const arr = Array.from({ length: n }, () => Math.floor(Math.random() * 90) + 10);
     this.setValues(arr);
+  }
+
+  private clearBars() {
+    for (const bar of this.bars) {
+      this.scene.remove(bar.mesh);
+      bar.mesh.geometry.dispose();
+      bar.material.dispose();
+      bar.edgeMaterial.dispose();
+      bar.edgeMesh.geometry.dispose();
+    }
+    this.bars = [];
   }
 
   private createBars() {
     const totalWidth = this.values.length * (this.barWidth + this.barGap);
     const startX = -totalWidth / 2 + this.barWidth / 2;
 
-    const colors = [
-      new THREE.Color(this.theme.primary),
-      new THREE.Color(this.theme.secondary),
-      new THREE.Color(this.theme.accent),
-      new THREE.Color(this.theme.highlight),
-    ];
-
     for (let i = 0; i < this.values.length; i++) {
       const value = this.values[i];
-      const height = (value / this.maxValue) * this.barHeight + 0.5;
-      const colorIdx = i % colors.length;
+      const h = (value / this.maxValue) * this.barHeightScale + 0.3;
+      const color = this.idleColor(i);
 
-      const geo = new THREE.BoxGeometry(this.barWidth, height, this.barWidth);
+      const geo = new THREE.BoxGeometry(this.barWidth, h, this.barWidth);
       const mat = new THREE.MeshStandardMaterial({
-        color: colors[colorIdx],
+        color: color.clone(),
         roughness: 0.3,
         metalness: 0.6,
-        emissive: colors[colorIdx],
+        emissive: color.clone(),
         emissiveIntensity: 0.15,
       });
       const mesh = new THREE.Mesh(geo, mat);
@@ -106,15 +115,14 @@ export class SortingVisualizer extends ThreeVisualizer {
       mesh.receiveShadow = true;
 
       const x = startX + i * (this.barWidth + this.barGap);
-      const y = height / 2;
-      mesh.position.set(x, y, 0);
+      mesh.position.set(x, h / 2, 0);
       this.scene.add(mesh);
 
       const edges = new THREE.EdgesGeometry(geo);
       const edgeMat = new THREE.LineBasicMaterial({
         color: 0xffffff,
         transparent: true,
-        opacity: 0.4,
+        opacity: 0.3,
       });
       const edgeMesh = new THREE.LineSegments(edges, edgeMat);
       mesh.add(edgeMesh);
@@ -122,16 +130,30 @@ export class SortingVisualizer extends ThreeVisualizer {
       this.bars.push({
         index: i,
         value,
-        state: 'idle',
-        targetY: y,
-        currentY: y,
-        targetX: x,
-        currentX: x,
         mesh,
         material: mat,
         edgeMaterial: edgeMat,
         edgeMesh,
+        originalHeight: h,
+        currentHeight: h,
+        targetHeight: h,
+        state: 'idle',
       });
+    }
+  }
+
+  /**
+   * Update bar heights to reflect current array values.
+   * Call this when the array state changes during sorting.
+   */
+  updateArray(values: number[]) {
+    if (values.length !== this.bars.length) return;
+    const newMax = Math.max(...values, 1);
+    for (let i = 0; i < this.bars.length; i++) {
+      const bar = this.bars[i];
+      const newH = (values[i] / newMax) * this.barHeightScale + 0.3;
+      bar.targetHeight = newH;
+      bar.value = values[i];
     }
   }
 
@@ -152,13 +174,6 @@ export class SortingVisualizer extends ThreeVisualizer {
       if (this.bars[i]) this.bars[i].state = 'sorted';
     }
     this.syncVisualStates();
-  }
-
-  swap(i: number, j: number) {
-    if (!this.bars[i] || !this.bars[j]) return;
-    const a = this.bars[i];
-    const b = this.bars[j];
-    [a.targetX, b.targetX] = [b.currentX, a.currentX];
   }
 
   private syncVisualStates() {
@@ -192,10 +207,10 @@ export class SortingVisualizer extends ThreeVisualizer {
           break;
       }
 
-      bar.material.color.lerp(color, 0.2);
-      bar.material.emissive.lerp(color, 0.2);
-      bar.material.emissiveIntensity += (emissiveIntensity - bar.material.emissiveIntensity) * 0.2;
-      bar.mesh.scale.y += (scaleY - bar.mesh.scale.y) * 0.2;
+      bar.material.color.lerp(color, 0.3);
+      bar.material.emissive.lerp(color, 0.3);
+      bar.material.emissiveIntensity += (emissiveIntensity - bar.material.emissiveIntensity) * 0.3;
+      bar.mesh.scale.y += (scaleY - bar.mesh.scale.y) * 0.3;
     }
   }
 
@@ -213,14 +228,18 @@ export class SortingVisualizer extends ThreeVisualizer {
     const t = 1 - Math.pow(0.001, delta);
 
     for (const bar of this.bars) {
-      const newX = bar.currentX + (bar.targetX - bar.currentX) * t;
-      const newY = bar.currentY + (bar.targetY - bar.currentY) * t;
-      bar.currentX = newX;
-      bar.currentY = newY;
-      bar.mesh.position.x = newX;
-      bar.mesh.position.y = newY;
+      // Smoothly animate height changes
+      if (Math.abs(bar.currentHeight - bar.targetHeight) > 0.01) {
+        bar.currentHeight += (bar.targetHeight - bar.currentHeight) * t;
+        // Update geometry height by scaling
+        const scale = bar.currentHeight / bar.originalHeight;
+        bar.mesh.scale.y = Math.max(0.1, scale);
+        // Re-center the mesh vertically
+        bar.mesh.position.y = bar.currentHeight / 2;
+      }
 
-      bar.mesh.rotation.y += delta * 0.1;
+      // Gentle rotation
+      bar.mesh.rotation.y += delta * 0.02;
     }
   }
 
@@ -228,5 +247,6 @@ export class SortingVisualizer extends ThreeVisualizer {
     for (const bar of this.bars) {
       bar.state = 'idle';
     }
+    this.syncVisualStates();
   }
 }
