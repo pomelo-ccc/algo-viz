@@ -45,18 +45,7 @@ export default function Sorting() {
   const [viewMode, setViewMode] = createSignal<'2d' | '3d'>('2d');
 
   onMount(() => {
-    if (!container3DRef) return;
-
-    // Initialize 3D visualizer (lazy)
-    visualizer3D = new SortingVisualizer(container3DRef, {
-      cameraPosition: [0, 8, 14],
-      fov: 50,
-    });
-    const isDark = () => document.documentElement.getAttribute('data-theme') === 'dark';
-    visualizer3D.setTheme(isDark() ? DARK_THEME : LIGHT_THEME);
-    visualizer3D.start();
-
-    // Initialize 2D renderer
+    // Initialize 2D renderer (immediately, canvas is visible)
     if (canvas2DRef) {
       renderer2D = createSortingRenderer(canvas2DRef);
     }
@@ -65,6 +54,8 @@ export default function Sorting() {
       visualizer3D?.setTheme(isDark() ? DARK_THEME : LIGHT_THEME);
     });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+    const isDark = () => document.documentElement.getAttribute('data-theme') === 'dark';
 
     controller = new AnimationController<number[]>({ speed: speed() });
     controller.setCallbacks(
@@ -103,7 +94,6 @@ export default function Sorting() {
       if (renderer2D && canvas2DRef) {
         renderer2D.resize();
       }
-      // 3D resize handled by ThreeVisualizer internally
     };
     window.addEventListener('resize', handleResize);
 
@@ -152,28 +142,49 @@ export default function Sorting() {
     setTotalSteps(0);
 
     if (viewMode() === '3d' && visualizer3D) {
-      visualizer3D.generateRandomArray(arraySize());
+      visualizer3D.setValues(arr);
     } else if (viewMode() === '2d' && renderer2D) {
       renderer2D.render({ array: arr, comparing: [], swapping: [], sorted: [] });
     }
   };
 
+  const init3D = () => {
+    if (!container3DRef || visualizer3D) return;
+    visualizer3D = new SortingVisualizer(container3DRef, {
+      cameraPosition: [0, 8, 14],
+      fov: 50,
+    });
+    const isDark = () => document.documentElement.getAttribute('data-theme') === 'dark';
+    visualizer3D.setTheme(isDark() ? DARK_THEME : LIGHT_THEME);
+    visualizer3D.start();
+  };
+
   const toggleViewMode = () => {
     const newMode = viewMode() === '2d' ? '3d' : '2d';
     setViewMode(newMode);
-    // After switch, render the current array in the new mode
-    setTimeout(() => {
-      const arr = [...array()];
-      if (newMode === '3d' && visualizer3D) {
-        if (arr.length > 0) {
-          visualizer3D.setValues(arr);
-        } else {
-          visualizer3D.generateRandomArray(arraySize());
+
+    if (newMode === '3d') {
+      // Initialize 3D only when container becomes visible
+      setTimeout(() => {
+        const arr = [...array()];
+        init3D();
+        if (visualizer3D) {
+          if (arr.length > 0) {
+            visualizer3D.setValues(arr);
+          } else {
+            visualizer3D.generateRandomArray(arraySize());
+          }
         }
-      } else if (newMode === '2d' && renderer2D) {
-        renderer2D.render({ array: arr.length > 0 ? arr : [], comparing: [], swapping: [], sorted: [] });
-      }
-    }, 50);
+      }, 50);
+    } else {
+      // Switch to 2D: render current array
+      setTimeout(() => {
+        const arr = [...array()];
+        if (renderer2D) {
+          renderer2D.render({ array: arr.length > 0 ? arr : [], comparing: [], swapping: [], sorted: [] });
+        }
+      }, 50);
+    }
   };
 
   const buildSteps = (arr: number[], algo: string) => {
