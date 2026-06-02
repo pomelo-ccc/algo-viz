@@ -246,12 +246,12 @@ class Particle {
 
 export function createSortingRenderer(canvas: HTMLCanvasElement) {
   return new DoubleBufferedRenderer(canvas, {
-    barColor: '#cccccc',
-    comparingColor: '#555555',
-    swappingColor: '#1a1a1a',
-    sortedColor: '#e5e5e5',
-    pivotColor: '#888888',
-    backgroundColor: '#ffffff',
+    barColor: '#3b82f6',
+    comparingColor: '#06ffa5',
+    swappingColor: '#ff006e',
+    sortedColor: '#00e5ff',
+    pivotColor: '#8338ec',
+    backgroundColor: '#0a0e1a',
     gradientEnabled: true,
     glowEnabled: true,
     particleEnabled: true,

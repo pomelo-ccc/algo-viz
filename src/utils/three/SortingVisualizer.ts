@@ -1,22 +1,17 @@
 /**
- * Sorting 3D Visualizer
- * Each element is a 3D bar, height maps to value.
- * Bars stay in fixed positions; only height and color change during animation.
+ * Sorting 3D Visualizer - 3D Elements Style
+ * Glass + metal + neon materials with cold color gradients
  */
 
 import * as THREE from 'three';
 import { ThreeVisualizer, DARK_THEME, type VisualizerTheme } from './ThreeVisualizer';
 
-export interface SortBar {
+interface SortBar {
   index: number;
   value: number;
   mesh: THREE.Mesh;
   material: THREE.MeshStandardMaterial;
-  edgeMaterial: THREE.LineBasicMaterial;
   edgeMesh: THREE.LineSegments;
-  originalHeight: number;
-  currentHeight: number;
-  targetHeight: number;
   state: 'idle' | 'comparing' | 'swapping' | 'sorted' | 'pivot';
 }
 
@@ -26,48 +21,28 @@ export class SortingVisualizer extends ThreeVisualizer {
   private ground: THREE.Mesh | null = null;
   private grid: THREE.GridHelper | null = null;
   private maxValue = 100;
-  private barWidth = 0.6;
-  private barGap = 0.15;
-  private barHeightScale = 4;
+  private barWidth = 0.55;
+  private barGap = 0.12;
+  private barHeightScale = 5;
+  private hoverBar: number | null = null;
 
   protected onInit() {
     this.createEnvironment();
   }
 
-  protected onThemeChange(theme: VisualizerTheme) {
-    if (this.ground) {
-      (this.ground.material as THREE.MeshStandardMaterial).color.set(theme.bg);
-    }
-    if (this.grid) {
-      (this.grid.material as THREE.LineBasicMaterial).color.set(theme.primary).multiplyScalar(0.3);
-    }
-    // Update idle colors for all bars
-    for (const bar of this.bars) {
-      if (bar.state === 'idle') {
-        bar.material.color.set(this.idleColor(bar.index));
-        bar.material.emissive.set(this.idleColor(bar.index));
-      }
-    }
-  }
-
   private createEnvironment() {
-    const groundGeo = new THREE.PlaneGeometry(50, 50);
-    const groundMat = new THREE.MeshStandardMaterial({
-      color: DARK_THEME.bg,
-      roughness: 0.85,
-      metalness: 0.1,
-    });
-    this.ground = new THREE.Mesh(groundGeo, groundMat);
-    this.ground.rotation.x = -Math.PI / 2;
-    this.ground.position.y = -0.01;
-    this.ground.receiveShadow = true;
-    this.scene.add(this.ground);
-
-    this.grid = new THREE.GridHelper(40, 40, 0x1a1f30, 0x0f1320);
-    (this.grid.material as THREE.LineBasicMaterial).opacity = 0.4;
+    // Deep space background - no ground plane, just a grid floor
+    this.grid = new THREE.GridHelper(60, 60, 0x1a2a4a, 0x0f1528);
+    (this.grid.material as THREE.LineBasicMaterial).opacity = 0.3;
     (this.grid.material as THREE.LineBasicMaterial).transparent = true;
     this.grid.position.y = 0;
     this.scene.add(this.grid);
+  }
+
+  protected onThemeChange(theme: VisualizerTheme) {
+    if (this.grid) {
+      (this.grid.material as THREE.LineBasicMaterial).color.set(theme.primary).multiplyScalar(0.2);
+    }
   }
 
   setValues(values: number[]) {
@@ -87,7 +62,7 @@ export class SortingVisualizer extends ThreeVisualizer {
       this.scene.remove(bar.mesh);
       bar.mesh.geometry.dispose();
       bar.material.dispose();
-      bar.edgeMaterial.dispose();
+      (bar.edgeMesh.material as THREE.Material).dispose();
       bar.edgeMesh.geometry.dispose();
     }
     this.bars = [];
@@ -99,16 +74,19 @@ export class SortingVisualizer extends ThreeVisualizer {
 
     for (let i = 0; i < this.values.length; i++) {
       const value = this.values[i];
-      const h = (value / this.maxValue) * this.barHeightScale + 0.3;
+      const h = (value / this.maxValue) * this.barHeightScale + 0.2;
       const color = this.idleColor(i);
 
+      // Glass-like bar with metallic finish
       const geo = new THREE.BoxGeometry(this.barWidth, h, this.barWidth);
       const mat = new THREE.MeshStandardMaterial({
         color: color.clone(),
-        roughness: 0.3,
-        metalness: 0.6,
+        roughness: 0.15,
+        metalness: 0.85,
         emissive: color.clone(),
-        emissiveIntensity: 0.15,
+        emissiveIntensity: 0.2,
+        transparent: true,
+        opacity: 0.9,
       });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.castShadow = true;
@@ -118,11 +96,12 @@ export class SortingVisualizer extends ThreeVisualizer {
       mesh.position.set(x, h / 2, 0);
       this.scene.add(mesh);
 
+      // Neon edge glow
       const edges = new THREE.EdgesGeometry(geo);
       const edgeMat = new THREE.LineBasicMaterial({
-        color: 0xffffff,
+        color: 0x00e5ff,
         transparent: true,
-        opacity: 0.3,
+        opacity: 0.5,
       });
       const edgeMesh = new THREE.LineSegments(edges, edgeMat);
       mesh.add(edgeMesh);
@@ -132,28 +111,9 @@ export class SortingVisualizer extends ThreeVisualizer {
         value,
         mesh,
         material: mat,
-        edgeMaterial: edgeMat,
         edgeMesh,
-        originalHeight: h,
-        currentHeight: h,
-        targetHeight: h,
         state: 'idle',
       });
-    }
-  }
-
-  /**
-   * Update bar heights to reflect current array values.
-   * Call this when the array state changes during sorting.
-   */
-  updateArray(values: number[]) {
-    if (values.length !== this.bars.length) return;
-    const newMax = Math.max(...values, 1);
-    for (let i = 0; i < this.bars.length; i++) {
-      const bar = this.bars[i];
-      const newH = (values[i] / newMax) * this.barHeightScale + 0.3;
-      bar.targetHeight = newH;
-      bar.value = values[i];
     }
   }
 
@@ -178,50 +138,51 @@ export class SortingVisualizer extends ThreeVisualizer {
 
   private syncVisualStates() {
     for (const bar of this.bars) {
-      let color: THREE.Color;
-      let emissiveIntensity = 0.15;
+      let targetColor: THREE.Color;
+      let emissiveIntensity = 0.2;
       let pulse = 1;
 
       switch (bar.state) {
         case 'idle':
-          color = this.idleColor(bar.index);
+          targetColor = this.idleColor(bar.index);
           break;
         case 'comparing':
-          color = new THREE.Color(this.theme.highlight);
-          emissiveIntensity = 0.6;
-          pulse = 1.05;
-          break;
-        case 'swapping':
-          color = new THREE.Color(this.theme.secondary);
+          targetColor = new THREE.Color(0x06ffa5);
           emissiveIntensity = 0.8;
           pulse = 1.08;
           break;
+        case 'swapping':
+          targetColor = new THREE.Color(0xff006e);
+          emissiveIntensity = 1.0;
+          pulse = 1.12;
+          break;
         case 'pivot':
-          color = new THREE.Color(this.theme.accent);
-          emissiveIntensity = 0.5;
+          targetColor = new THREE.Color(0x8338ec);
+          emissiveIntensity = 0.6;
           pulse = 1.06;
           break;
         case 'sorted':
-          color = new THREE.Color(this.theme.primary);
-          emissiveIntensity = 0.3;
+          targetColor = new THREE.Color(0x00e5ff);
+          emissiveIntensity = 0.5;
           break;
       }
 
-      bar.material.color.lerp(color, 0.3);
-      bar.material.emissive.lerp(color, 0.3);
-      bar.material.emissiveIntensity += (emissiveIntensity - bar.material.emissiveIntensity) * 0.3;
-      // Pulse on x/z axes only; y scale is used for height animation
-      bar.mesh.scale.x += (pulse - bar.mesh.scale.x) * 0.3;
-      bar.mesh.scale.z += (pulse - bar.mesh.scale.z) * 0.3;
+      bar.material.color.lerp(targetColor, 0.25);
+      bar.material.emissive.lerp(targetColor, 0.25);
+      bar.material.emissiveIntensity += (emissiveIntensity - bar.material.emissiveIntensity) * 0.25;
+      // Subtle pulse on x/z
+      bar.mesh.scale.x += (pulse - bar.mesh.scale.x) * 0.25;
+      bar.mesh.scale.z += (pulse - bar.mesh.scale.z) * 0.25;
     }
   }
 
   private idleColor(index: number): THREE.Color {
+    // Cool gradient palette: cyan -> blue -> purple -> magenta
     const colors = [
-      new THREE.Color(this.theme.primary),
-      new THREE.Color(this.theme.secondary),
-      new THREE.Color(this.theme.accent),
-      new THREE.Color(this.theme.highlight),
+      new THREE.Color(0x00e5ff),
+      new THREE.Color(0x3b82f6),
+      new THREE.Color(0x8338ec),
+      new THREE.Color(0xff006e),
     ];
     return colors[index % colors.length];
   }
@@ -230,19 +191,27 @@ export class SortingVisualizer extends ThreeVisualizer {
     const t = 1 - Math.pow(0.001, delta);
 
     for (const bar of this.bars) {
-      // Smoothly animate height changes
-      if (Math.abs(bar.currentHeight - bar.targetHeight) > 0.01) {
-        bar.currentHeight += (bar.targetHeight - bar.currentHeight) * t;
-        // Update geometry height by scaling
-        const scale = bar.currentHeight / bar.originalHeight;
-        bar.mesh.scale.y = Math.max(0.1, scale);
-        // Re-center the mesh vertically
-        bar.mesh.position.y = bar.currentHeight / 2;
+      // Idle floating animation
+      if (bar.state === 'idle') {
+        const floatY = Math.sin(_elapsed * 2 + bar.index * 0.5) * 0.05;
+        bar.mesh.position.y += floatY * 0.1;
       }
 
       // Gentle rotation
-      bar.mesh.rotation.y += delta * 0.02;
+      bar.mesh.rotation.y += delta * 0.01;
+
+      // Smooth state transition
+      bar.material.color.lerp(this.idleColor(bar.index), t * 0.02);
+      if (bar.state === 'idle') {
+        bar.material.emissiveIntensity += (0.2 - bar.material.emissiveIntensity) * t * 0.1;
+      }
     }
+
+    // Camera gentle orbit
+    const time = _elapsed * 0.1;
+    this.camera.position.x = Math.sin(time) * 2;
+    this.camera.position.z = 14 + Math.cos(time) * 2;
+    this.camera.lookAt(0, 2, 0);
   }
 
   reset() {
