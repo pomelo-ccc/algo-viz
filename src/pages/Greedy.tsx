@@ -2,6 +2,7 @@ import { createSignal, onMount, onCleanup } from 'solid-js';
 import { greedyCodes, languageLabels, type Language } from '../utils/codeData';
 import CodePanel from '../components/CodePanel';
 import ControlPanel from '../components/ControlPanel';
+import Dropdown from '../components/Dropdown';
 import { AnimationController, type AnimStep } from '../utils/animation';
 
 interface Activity {
@@ -297,9 +298,11 @@ export default function Greedy() {
             <div class="controls">
               <div class="controls-group">
                 <label>语言</label>
-                <select onChange={e => setLang(e.currentTarget.value as Language)} value={lang()} style={{ padding: '0.5rem', border: '1px solid var(--border)' }}>
-                  {Object.entries(languageLabels).map(([k, v]) => <option value={k}>{v}</option>)}
-                </select>
+                <Dropdown
+                  value={lang()}
+                  onChange={(value) => setLang(value as Language)}
+                  options={Object.entries(languageLabels).map(([k, v]) => ({ value: k, label: v }))}
+                />
               </div>
             </div>
             <div class="canvas-container canvas-container-enhanced" style={{ padding: '2rem', 'min-height': '300px' }}>

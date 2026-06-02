@@ -1,4 +1,5 @@
 import { createSignal, Show } from 'solid-js';
+import Dropdown from './Dropdown';
 import {
   sortingCodes, searchingCodes, graphCodes,
   dpCodes, pathfindingCodes, backtrackingCodes,
@@ -45,22 +46,11 @@ export default function CodePanel(props: CodePanelProps) {
       <div class="info-panel">
         <h3>算法代码</h3>
         <div style={{ 'margin-bottom': '0.75rem' }}>
-          <select
+          <Dropdown
             value={lang()}
-            onChange={(e) => setLang(e.currentTarget.value as Language)}
-            style={{
-              padding: '0.4rem 0.75rem',
-              border: '1px solid var(--border)',
-              background: '#fff',
-              'font-family': 'var(--font-mono)',
-              'font-size': '0.8rem',
-              cursor: 'pointer',
-            }}
-          >
-            {availableLanguages.map(l => (
-              <option value={l}>{l.charAt(0).toUpperCase() + l.slice(1)}</option>
-            ))}
-          </select>
+            onChange={(value) => setLang(value as Language)}
+            options={availableLanguages.map(l => ({ value: l, label: l.charAt(0).toUpperCase() + l.slice(1) }))}
+          />
         </div>
         <pre style={{
           background: '#f5f5f5',

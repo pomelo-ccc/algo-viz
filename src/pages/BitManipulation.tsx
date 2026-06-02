@@ -1,10 +1,11 @@
 import { createSignal } from 'solid-js';
 import CodePanel from '../components/CodePanel';
+import Dropdown from '../components/Dropdown';
 
 export default function BitManipulation() {
   const [numA, setNumA] = createSignal(170);
   const [numB, setNumB] = createSignal(85);
-  const [operation, setOperation] = createSignal<'and' | 'or' | 'xor' | 'not' | 'lsh' | 'rsh'>('and');
+  const [operation, setOperation] = createSignal<string>('and');
   const [result, setResult] = createSignal(0);
   const [steps, setSteps] = createSignal<string[]>([]);
   const [isRunning, setIsRunning] = createSignal(false);
@@ -190,14 +191,18 @@ export default function BitManipulation() {
               </div>
               <div class="controls-group">
                 <label>操作</label>
-                <select value={operation()} onChange={e => setOperation(e.currentTarget.value as any)} style={{ padding: '0.5rem', border: '1px solid var(--border)' }}>
-                  <option value="and">AND (&)</option>
-                  <option value="or">OR (|)</option>
-                  <option value="xor">XOR (^)</option>
-                  <option value="not">NOT (~)</option>
-                  <option value="lsh">{'左移 (<<)'}</option>
-                  <option value="rsh">{'右移 (>>)'}</option>
-                </select>
+                <Dropdown
+                  value={operation()}
+                  onChange={(value) => setOperation(value)}
+                  options={[
+                    { label: 'AND (&)', value: 'and' },
+                    { label: 'OR (|)', value: 'or' },
+                    { label: 'XOR (^)', value: 'xor' },
+                    { label: 'NOT (~)', value: 'not' },
+                    { label: '左移 (<<)', value: 'lsh' },
+                    { label: '右移 (>>)', value: 'rsh' },
+                  ]}
+                />
               </div>
               <div class="controls-group">
                 <button class="btn btn-primary" onClick={runOperation} disabled={isRunning()}>
