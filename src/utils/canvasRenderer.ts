@@ -92,19 +92,21 @@ export class DoubleBufferedRenderer {
     const { array, comparing, swapping, sorted, pivot } = state;
     if (array.length === 0) return;
 
-    const gap = 4;
-    const barWidth = (width - (array.length + 1) * gap) / array.length;
+    const gap = 2;
+    const totalGaps = array.length + 1;
+    const barWidth = Math.max(2, (width - totalGaps * gap) / array.length);
     const maxValue = Math.max(...array, 1);
     const padding = 40;
     const chartHeight = height - padding * 2;
 
     // Draw bars
     for (let i = 0; i < array.length; i++) {
-      const barHeight = (array[i] / maxValue) * chartHeight;
+      const barHeightVal = (array[i] / maxValue) * chartHeight;
+      const barHeight = Math.max(4, barHeightVal);
       const x = gap + i * (barWidth + gap);
       const y = height - padding - barHeight;
-      const bw = Math.max(1, barWidth);
-      const bh = Math.max(1, barHeight);
+      const bw = Math.max(2, barWidth);
+      const bh = barHeight;
 
       // Determine color based on state
       let color = this.config.barColor;
@@ -116,7 +118,6 @@ export class DoubleBufferedRenderer {
         color = this.config.swappingColor;
         isActive = true;
       } else if (comparing.includes(i)) {
-        // Alternate colors for comparing elements
         const compareIndex = comparing.indexOf(i);
         color = compareIndex === 0 ? this.config.comparingColor : '#f59e0b';
         isActive = true;
@@ -127,24 +128,29 @@ export class DoubleBufferedRenderer {
 
       // Draw top-rounded bar
       ctx.save();
-      this.drawTopRoundedBar(ctx, x, y, bw, bh, Math.min(bw / 2, 8));
+      this.drawTopRoundedBar(ctx, x, y, bw, bh, Math.min(bw / 2, 6));
 
       // Gradient fill
       if (this.config.gradientEnabled) {
         const gradient = ctx.createLinearGradient(x, y, x, y + bh);
-        gradient.addColorStop(0, this.lightenColor(color, 0.2));
+        gradient.addColorStop(0, this.lightenColor(color, 0.3));
         gradient.addColorStop(0.5, color);
-        gradient.addColorStop(1, this.darkenColor(color, 0.3));
+        gradient.addColorStop(1, this.darkenColor(color, 0.2));
         ctx.fillStyle = gradient;
       } else {
         ctx.fillStyle = color;
       }
       ctx.fill();
 
+      // Subtle border for visibility
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+
       // Glow effect for active bars
       if (this.config.glowEnabled && isActive) {
         ctx.shadowColor = color;
-        ctx.shadowBlur = 20;
+        ctx.shadowBlur = 15;
         ctx.shadowOffsetY = 0;
         ctx.strokeStyle = color;
         ctx.lineWidth = 1;
@@ -311,7 +317,7 @@ export function createSortingRenderer(canvas: HTMLCanvasElement) {
     barColor: '#3b82f6',
     comparingColor: '#fbbf24',
     swappingColor: '#ef4444',
-    sortedColor: '#0d9488',
+    sortedColor: '#2dd4bf',
     pivotColor: '#8b5cf6',
     backgroundColor: '#0a0e17',
     gradientEnabled: true,
