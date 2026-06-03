@@ -107,15 +107,27 @@ function chapterOpacity(progress: number, index: number) {
 export default function Home() {
   const [mode, setMode] = createSignal<Mode>('flow');
   const [heroProgress, setHeroProgress] = createSignal(0);
+  const [storyScroll, setStoryScroll] = createSignal(0);
+  const [catalogScroll, setCatalogScroll] = createSignal(0);
   let stageRef: HTMLElement | undefined;
+  let storyRef: HTMLElement | undefined;
+  let catalogRef: HTMLElement | undefined;
 
   onMount(() => {
     let ticking = false;
+    const getSectionProgress = (element: HTMLElement | undefined) => {
+      if (!element) return 0;
+      const rect = element.getBoundingClientRect();
+      const distance = window.innerHeight + rect.height;
+      return distance > 0 ? clamp((window.innerHeight - rect.top) / distance) : 0;
+    };
     const updateProgress = () => {
       if (!stageRef) return;
       const rect = stageRef.getBoundingClientRect();
       const scrollable = rect.height - window.innerHeight;
       setHeroProgress(scrollable > 0 ? clamp(-rect.top / scrollable) : 0);
+      setStoryScroll(getSectionProgress(storyRef));
+      setCatalogScroll(getSectionProgress(catalogRef));
       ticking = false;
     };
     const requestUpdate = () => {
@@ -134,6 +146,8 @@ export default function Home() {
 
   const progress = createMemo(() => heroProgress());
   const storyProgress = createMemo(() => clamp((heroProgress() - 0.32) / 0.48));
+  const storyReveal = createMemo(() => clamp((storyScroll() - 0.08) / 0.42));
+  const catalogReveal = createMemo(() => clamp((catalogScroll() - 0.06) / 0.36));
   const activeChapter = createMemo(() => Math.min(Math.round(progress() * (SCROLL_CHAPTERS.length - 1)), SCROLL_CHAPTERS.length - 1));
 
   return (
@@ -221,9 +235,9 @@ export default function Home() {
         </div>
       </section>
 
-      <section class="home-story-band">
+      <section ref={storyRef} class="home-story-band" style={{ '--story-reveal': `${storyReveal()}` }}>
         <div class="container home-story-grid">
-          <div class="home-story-intro" style={{ transform: `translate3d(0, ${storyProgress() * -28}px, 0)` }}>
+          <div class="home-story-intro" style={{ transform: `translate3d(0, ${(1 - storyReveal()) * 32}px, 0)`, opacity: `${clamp(0.55 + storyReveal() * 0.45)}` }}>
             <div class="home-section-kicker">Why This Exists</div>
             <h2>不是只告诉你答案，而是把每一次移动、比较和分支都展开给你看。</h2>
             <p>
@@ -235,8 +249,8 @@ export default function Home() {
               <article
                 class="home-story-card"
                 style={{
-                  transform: `translate3d(0, ${(1 - storyProgress()) * (28 + index * 10)}px, 0)`,
-                  opacity: `${0.5 + storyProgress() * 0.5}`,
+                  transform: `translate3d(0, ${(1 - storyReveal()) * (18 + index * 8)}px, 0)`,
+                  opacity: `${clamp(0.62 + storyReveal() * 0.46 - index * 0.05)}`,
                 }}
               >
                 <div class="home-story-index">{String(index + 1).padStart(2, '0')}</div>
@@ -248,9 +262,9 @@ export default function Home() {
         </div>
       </section>
 
-      <section class="container home-categories">
+      <section ref={catalogRef} class="container home-categories" style={{ '--catalog-reveal': `${catalogReveal()}` }}>
         {categories.map((cat, index) => (
-          <div class="category-section" style={{ '--category-delay': `${index * 0.08}s` }}>
+          <div class="category-section" style={{ '--category-delay': `${index * 0.08}s`, transform: `translate3d(0, ${(1 - catalogReveal()) * 26}px, 0)`, opacity: `${clamp(0.74 + catalogReveal() * 0.26)}` }}>
             <div class="category-header">
               <h2 class="category-title">
                 <span class="category-title-num">{String(index + 1).padStart(2, '0')}</span>
@@ -259,8 +273,15 @@ export default function Home() {
               <div class="category-meta">{cat.items.length} 个主题</div>
             </div>
             <div class="algorithm-grid">
-              {cat.items.map((algo) => (
-                <A href={algo.path} class="algorithm-card algorithm-card-home">
+              {cat.items.map((algo, itemIndex) => (
+                <A
+                  href={algo.path}
+                  class="algorithm-card algorithm-card-home"
+                  style={{
+                    transform: `translate3d(0, ${Math.max(0, 1 - catalogReveal() * 1.15 + itemIndex * 0.012) * 28}px, 0)`,
+                    opacity: `${clamp(0.72 + catalogReveal() * 0.36 - itemIndex * 0.012, 0.68, 1)}`,
+                  }}
+                >
                   <div class="algorithm-card-meta">进入主题</div>
                   <h3 class="algorithm-card-title">{algo.title}</h3>
                   <p class="algorithm-card-desc">{algo.desc}</p>
