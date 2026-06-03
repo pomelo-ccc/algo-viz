@@ -107,15 +107,27 @@ function chapterOpacity(progress: number, index: number) {
 export default function Home() {
   const [mode, setMode] = createSignal<Mode>('flow');
   const [heroProgress, setHeroProgress] = createSignal(0);
+  const [storyScroll, setStoryScroll] = createSignal(0);
+  const [catalogScroll, setCatalogScroll] = createSignal(0);
   let stageRef: HTMLElement | undefined;
+  let storyRef: HTMLElement | undefined;
+  let catalogRef: HTMLElement | undefined;
 
   onMount(() => {
     let ticking = false;
+    const sectionProgress = (element: HTMLElement | undefined) => {
+      if (!element) return 0;
+      const rect = element.getBoundingClientRect();
+      const distance = window.innerHeight + rect.height;
+      return clamp((window.innerHeight - rect.top) / distance);
+    };
     const updateProgress = () => {
       if (!stageRef) return;
       const rect = stageRef.getBoundingClientRect();
       const scrollable = rect.height - window.innerHeight;
       setHeroProgress(scrollable > 0 ? clamp(-rect.top / scrollable) : 0);
+      setStoryScroll(sectionProgress(storyRef));
+      setCatalogScroll(sectionProgress(catalogRef));
       ticking = false;
     };
     const requestUpdate = () => {
@@ -134,6 +146,8 @@ export default function Home() {
 
   const progress = createMemo(() => heroProgress());
   const storyProgress = createMemo(() => clamp((heroProgress() - 0.32) / 0.48));
+  const storyReveal = createMemo(() => clamp((storyScroll() - 0.12) / 0.56));
+  const catalogReveal = createMemo(() => clamp((catalogScroll() - 0.08) / 0.62));
   const activeChapter = createMemo(() => Math.min(Math.round(progress() * (SCROLL_CHAPTERS.length - 1)), SCROLL_CHAPTERS.length - 1));
 
   return (
@@ -221,9 +235,9 @@ export default function Home() {
         </div>
       </section>
 
-      <section class="home-story-band">
+      <section ref={storyRef} class="home-story-band" style={{ '--story-progress': `${storyReveal()}` }}>
         <div class="container home-story-grid">
-          <div class="home-story-intro" style={{ transform: `translate3d(0, ${storyProgress() * -28}px, 0)` }}>
+          <div class="home-story-intro" style={{ transform: `translate3d(0, ${(1 - storyReveal()) * 64}px, 0)`, opacity: `${clamp(0.28 + storyReveal() * 0.72)}` }}>
             <div class="home-section-kicker">Why This Exists</div>
             <h2>不是只告诉你答案，而是把每一次移动、比较和分支都展开给你看。</h2>
             <p>
@@ -235,8 +249,8 @@ export default function Home() {
               <article
                 class="home-story-card"
                 style={{
-                  transform: `translate3d(0, ${(1 - storyProgress()) * (28 + index * 10)}px, 0)`,
-                  opacity: `${0.5 + storyProgress() * 0.5}`,
+                  transform: `translate3d(${(1 - storyReveal()) * (index % 2 === 0 ? 38 : -28)}px, ${(1 - storyReveal()) * (42 + index * 18)}px, 0)`,
+                  opacity: `${clamp(storyReveal() * 1.35 - index * 0.16)}`,
                 }}
               >
                 <div class="home-story-index">{String(index + 1).padStart(2, '0')}</div>
@@ -248,33 +262,47 @@ export default function Home() {
         </div>
       </section>
 
-      <section class="container home-categories">
-        {categories.map((cat, index) => (
-          <div class="category-section" style={{ '--category-delay': `${index * 0.08}s` }}>
-            <div class="category-header">
-              <h2 class="category-title">
-                <span class="category-title-num">{String(index + 1).padStart(2, '0')}</span>
-                {cat.title}
-              </h2>
-              <div class="category-meta">{cat.items.length} 个主题</div>
-            </div>
-            <div class="algorithm-grid">
-              {cat.items.map((algo) => (
-                <A href={algo.path} class="algorithm-card algorithm-card-home">
-                  <div class="algorithm-card-meta">进入主题</div>
-                  <h3 class="algorithm-card-title">{algo.title}</h3>
-                  <p class="algorithm-card-desc">{algo.desc}</p>
-                  <div class="algorithm-card-arrow">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                      <line x1="5" y1="12" x2="19" y2="12" />
-                      <polyline points="12 5 19 12 12 19" />
-                    </svg>
-                  </div>
-                </A>
-              ))}
-            </div>
+      <section ref={catalogRef} class="home-catalog-stage" style={{ '--catalog-progress': `${catalogReveal()}` }}>
+        <div class="container home-catalog-shell">
+          <div class="home-catalog-heading" style={{ transform: `translate3d(0, ${(1 - catalogReveal()) * 54}px, 0)`, opacity: `${clamp(0.22 + catalogReveal() * 0.78)}` }}>
+            <div class="home-section-kicker">Algorithm Index</div>
+            <h2>选择一个主题，让过程继续展开。</h2>
+            <p>目录不再只是入口列表，每个主题都对应一种数据变化方式。先从排序、搜索或图开始，再逐步进入更复杂的结构。</p>
           </div>
-        ))}
+          {categories.map((cat, index) => (
+            <div class="category-section home-catalog-section" style={{ '--category-delay': `${index * 0.08}s` }}>
+              <div class="category-header home-catalog-header">
+                <h2 class="category-title">
+                  <span class="category-title-num">{String(index + 1).padStart(2, '0')}</span>
+                  {cat.title}
+                </h2>
+                <div class="category-meta">{cat.items.length} 个主题</div>
+              </div>
+              <div class="algorithm-grid home-catalog-grid">
+                {cat.items.map((algo, itemIndex) => (
+                  <A
+                    href={algo.path}
+                    class="algorithm-card algorithm-card-home"
+                    style={{
+                      transform: `translate3d(0, ${Math.max(0, 1 - catalogReveal() * 1.25 + itemIndex * 0.018) * 72}px, 0)`,
+                      opacity: `${clamp(0.24 + catalogReveal() * 1.18 - itemIndex * 0.026, 0.18, 1)}`,
+                    }}
+                  >
+                    <div class="algorithm-card-meta">{String(itemIndex + 1).padStart(2, '0')} / 进入主题</div>
+                    <h3 class="algorithm-card-title">{algo.title}</h3>
+                    <p class="algorithm-card-desc">{algo.desc}</p>
+                    <div class="algorithm-card-arrow">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="5" y1="12" x2="19" y2="12" />
+                        <polyline points="12 5 19 12 12 19" />
+                      </svg>
+                    </div>
+                  </A>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       </section>
     </main>
   );
