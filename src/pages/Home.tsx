@@ -80,69 +80,144 @@ const STORY_BLOCKS = [
   },
 ];
 
+const SCROLL_CHAPTERS = [
+  { label: '01', title: '输入状态', text: '先观察原始数据的排列、分布和边界条件。' },
+  { label: '02', title: '局部动作', text: '比较、交换、拆分和合并被拆成可追踪的步骤。' },
+  { label: '03', title: '代码对应', text: '每一次视觉变化都能回到对应的代码逻辑。' },
+  { label: '04', title: '结果收束', text: '最后看到结构如何稳定下来，而不是只看到答案。' },
+];
+
+const CODE_LINES = [
+  'for each step in algorithm:',
+  '  compare current state',
+  '  update structure',
+  '  record transition',
+  'render(data, step, code)',
+];
+
+function clamp(value: number, min = 0, max = 1) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function chapterOpacity(progress: number, index: number) {
+  const center = index / Math.max(SCROLL_CHAPTERS.length - 1, 1);
+  return clamp(1 - Math.abs(progress - center) * 3.2, 0.18, 1);
+}
+
 export default function Home() {
   const [mode, setMode] = createSignal<Mode>('flow');
-  const [scrollY, setScrollY] = createSignal(0);
+  const [heroProgress, setHeroProgress] = createSignal(0);
+  let stageRef: HTMLElement | undefined;
 
   onMount(() => {
-    const handleScroll = () => setScrollY(window.scrollY);
-    handleScroll();
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    onCleanup(() => window.removeEventListener('scroll', handleScroll));
+    let ticking = false;
+    const updateProgress = () => {
+      if (!stageRef) return;
+      const rect = stageRef.getBoundingClientRect();
+      const scrollable = rect.height - window.innerHeight;
+      setHeroProgress(scrollable > 0 ? clamp(-rect.top / scrollable) : 0);
+      ticking = false;
+    };
+    const requestUpdate = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(updateProgress);
+    };
+    updateProgress();
+    window.addEventListener('scroll', requestUpdate, { passive: true });
+    window.addEventListener('resize', requestUpdate);
+    onCleanup(() => {
+      window.removeEventListener('scroll', requestUpdate);
+      window.removeEventListener('resize', requestUpdate);
+    });
   });
 
-  const heroProgress = createMemo(() => Math.min(scrollY() / 720, 1));
-  const storyProgress = createMemo(() => Math.min(Math.max((scrollY() - 240) / 700, 0), 1));
+  const progress = createMemo(() => heroProgress());
+  const storyProgress = createMemo(() => clamp((heroProgress() - 0.32) / 0.48));
+  const activeChapter = createMemo(() => Math.min(Math.round(progress() * (SCROLL_CHAPTERS.length - 1)), SCROLL_CHAPTERS.length - 1));
 
   return (
     <main class="home-page">
-      <section class="hero hero-scroll">
-        <div class="hero-scroll-bg" style={{ transform: `translate3d(0, ${heroProgress() * 52}px, 0) scale(${1 + heroProgress() * 0.03})` }}>
-          <GenerativeBackground mode={mode()} intensity="low" />
-        </div>
-        <div class="hero-scroll-grid container">
-          <div class="hero-scroll-copy" style={{ transform: `translate3d(0, ${heroProgress() * -72}px, 0)`, opacity: `${1 - heroProgress() * 0.18}` }}>
-            <div class="hero-eyebrow">
-              <span class="hero-eyebrow-dot" />
-              <span>Algorithm Visualizer</span>
-            </div>
-            <h1 class="hero-title">
-              <span class="hero-title-line">把算法从结果</span>
-              <span class="hero-title-line hero-title-accent">重新带回过程</span>
-            </h1>
-            <p class="hero-subtitle">
-              从排序、搜索到图与网络流，所有可视化都围绕同一件事展开：让数据结构、状态变化和代码逻辑在同一屏里变得可读。
-            </p>
+      <section ref={stageRef} class="home-scroll-stage" style={{ '--scroll-progress': `${progress()}` }}>
+        <div class="hero hero-scroll">
+          <div class="hero-scroll-bg" style={{ transform: `translate3d(0, ${progress() * 96}px, 0) scale(${1 + progress() * 0.08})` }}>
+            <GenerativeBackground mode={mode()} intensity="low" />
           </div>
-          <div class="hero-scroll-rail" style={{ transform: `translate3d(0, ${heroProgress() * -26}px, 0)` }}>
-            <div class="hero-modes">
-              <span class="hero-mode-label">视觉模式</span>
-              <button class={`hero-mode-chip ${mode() === 'flow' ? 'active' : ''}`} onClick={() => setMode('flow')}>
-                <span class="hero-mode-dot" />
-                Flow
-              </button>
-              <button class={`hero-mode-chip ${mode() === 'constellation' ? 'active' : ''}`} onClick={() => setMode('constellation')}>
-                <span class="hero-mode-dot" />
-                Constellation
-              </button>
-              <button class={`hero-mode-chip ${mode() === 'voronoi' ? 'active' : ''}`} onClick={() => setMode('voronoi')}>
-                <span class="hero-mode-dot" />
-                Voronoi
-              </button>
+          <div class="hero-scroll-grid container">
+            <div class="hero-scroll-copy" style={{ transform: `translate3d(0, ${progress() * -168}px, 0)`, opacity: `${clamp(1 - progress() * 2.7)}` }}>
+              <div class="hero-eyebrow">
+                <span class="hero-eyebrow-dot" />
+                <span>Algorithm Visualizer</span>
+              </div>
+              <h1 class="hero-title">
+                <span class="hero-title-line">把算法从结果</span>
+                <span class="hero-title-line hero-title-accent">重新带回过程</span>
+              </h1>
+              <p class="hero-subtitle">
+                从排序、搜索到图与网络流，所有可视化都围绕同一件事展开：让数据结构、状态变化和代码逻辑在同一屏里变得可读。
+              </p>
             </div>
-            <div class="hero-stats">
-              {STATS.map((stat) => (
-                <div class="hero-stat">
-                  <div class="hero-stat-value">{stat.value}</div>
-                  <div class="hero-stat-label">{stat.label}</div>
+            <div class="hero-scroll-rail" style={{ transform: `translate3d(0, ${progress() * -104}px, 0)`, opacity: `${clamp(1 - progress() * 0.72, 0.32, 1)}` }}>
+              <div class="hero-modes">
+                <span class="hero-mode-label">视觉模式</span>
+                <button class={`hero-mode-chip ${mode() === 'flow' ? 'active' : ''}`} onClick={() => setMode('flow')}>
+                  <span class="hero-mode-dot" />
+                  Flow
+                </button>
+                <button class={`hero-mode-chip ${mode() === 'constellation' ? 'active' : ''}`} onClick={() => setMode('constellation')}>
+                  <span class="hero-mode-dot" />
+                  Constellation
+                </button>
+                <button class={`hero-mode-chip ${mode() === 'voronoi' ? 'active' : ''}`} onClick={() => setMode('voronoi')}>
+                  <span class="hero-mode-dot" />
+                  Voronoi
+                </button>
+              </div>
+              <div class="hero-stats">
+                {STATS.map((stat) => (
+                  <div class="hero-stat">
+                    <div class="hero-stat-value">{stat.value}</div>
+                    <div class="hero-stat-label">{stat.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div class="hero-process-board" style={{ transform: `translate3d(0, ${(1 - storyProgress()) * 96}px, 0)`, opacity: `${storyProgress()}` }}>
+              <div class="hero-process-kicker">Scroll Sequence</div>
+              <div class="hero-process-title">从输入到结果的可视化路径</div>
+              <div class="hero-process-grid">
+                <div class="hero-process-steps">
+                  {SCROLL_CHAPTERS.map((chapter, index) => (
+                    <div class={`hero-process-step ${activeChapter() === index ? 'active' : ''}`} style={{ opacity: `${chapterOpacity(progress(), index)}` }}>
+                      <span>{chapter.label}</span>
+                      <strong>{chapter.title}</strong>
+                      <p>{chapter.text}</p>
+                    </div>
+                  ))}
                 </div>
-              ))}
+                <div class="hero-process-preview" aria-hidden="true">
+                  <div class="hero-data-row">
+                    {[38, 72, 44, 91, 56, 68, 29].map((value, index) => (
+                      <span style={{ height: `${32 + value * 0.72}px`, transform: `translate3d(0, ${Math.sin(progress() * 5 + index) * 10}px, 0)` }} />
+                    ))}
+                  </div>
+                  <div class="hero-code-window">
+                    {CODE_LINES.map((line, index) => (
+                      <code style={{ opacity: `${clamp(0.3 + progress() * 1.4 - index * 0.16, 0.24, 1)}` }}>{line}</code>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-        <div class="hero-scroll-hint">
-          <span>Scroll to Explore</span>
-          <div class="hero-scroll-line" />
+          <div class="hero-scroll-progress" aria-hidden="true">
+            <span style={{ transform: `scaleY(${Math.max(progress(), 0.04)})` }} />
+          </div>
+          <div class="hero-scroll-hint" style={{ opacity: `${1 - progress() * 1.8}` }}>
+            <span>Scroll to Explore</span>
+            <div class="hero-scroll-line" />
+          </div>
         </div>
       </section>
 
