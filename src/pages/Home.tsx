@@ -68,9 +68,32 @@ const STATS = [
 export default function Home() {
   const [mode, setMode] = createSignal<Mode>('flow');
 
+  const updateHeroColor = (event: PointerEvent & { currentTarget: HTMLElement }) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1);
+    const y = Math.min(Math.max((event.clientY - rect.top) / rect.height, 0), 1);
+    const hue = Math.round(190 + x * 130 - y * 24);
+    const warmHue = Math.round(328 - x * 70 + y * 18);
+
+    event.currentTarget.style.setProperty('--hero-mouse-x', `${(x * 100).toFixed(2)}%`);
+    event.currentTarget.style.setProperty('--hero-mouse-y', `${(y * 100).toFixed(2)}%`);
+    event.currentTarget.style.setProperty('--hero-pointer-opacity', '1');
+    event.currentTarget.style.setProperty('--hero-drift', `${((0.5 - x) * 18).toFixed(2)}%`);
+    event.currentTarget.style.setProperty('--hero-accent-live', `oklch(68% 0.2 ${hue})`);
+    event.currentTarget.style.setProperty('--hero-accent-warm', `oklch(65% 0.23 ${warmHue})`);
+    event.currentTarget.style.setProperty('--hero-gradient-position', `${(x * 100).toFixed(2)}% 50%`);
+  };
+
+  const resetHeroColor = (event: PointerEvent & { currentTarget: HTMLElement }) => {
+    event.currentTarget.style.setProperty('--hero-pointer-opacity', '0');
+    event.currentTarget.style.setProperty('--hero-mouse-x', '50%');
+    event.currentTarget.style.setProperty('--hero-mouse-y', '48%');
+    event.currentTarget.style.setProperty('--hero-drift', '0%');
+  };
+
   return (
     <main>
-      <section class="hero hero-art">
+      <section class="hero hero-art" onPointerMove={updateHeroColor} onPointerLeave={resetHeroColor}>
         <GenerativeBackground mode={mode()} intensity="medium" />
         <div class="hero-art-content">
           <div class="container">

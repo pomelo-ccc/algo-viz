@@ -39,10 +39,13 @@ export class GenerativeRenderer {
   private palette: Palette = PALETTES.default;
   private mouseX = -1000;
   private mouseY = -1000;
+  private lastMouseX = -1000;
+  private lastMouseY = -1000;
   private rafId = 0;
   private visible = true;
 
   private particles: Particle[] = [];
+  private cursorTrail: CursorTrailPoint[] = [];
   private voronoiPoints: { x: number; y: number; vx: number; vy: number; phase: number }[] = [];
 
   constructor(private canvas: HTMLCanvasElement) {
@@ -77,8 +80,23 @@ export class GenerativeRenderer {
   }
 
   setMouse(x: number, y: number) {
+    this.lastMouseX = this.mouseX;
+    this.lastMouseY = this.mouseY;
     this.mouseX = x;
     this.mouseY = y;
+
+    if (x >= 0 && y >= 0) {
+      const speed = this.lastMouseX >= 0 ? Math.hypot(x - this.lastMouseX, y - this.lastMouseY) : 0;
+      this.cursorTrail.push({
+        x,
+        y,
+        age: 0,
+        life: 34,
+        strength: Math.min(1, 0.35 + speed / 52),
+        color: this.pickColor(),
+      });
+      if (this.cursorTrail.length > 28) this.cursorTrail.shift();
+    }
   }
 
   resize() {
@@ -158,13 +176,16 @@ export class GenerativeRenderer {
       ctx.fillRect(0, 0, width, height);
       ctx.globalCompositeOperation = 'lighter';
       this.updateAndDrawFlow();
+      this.drawCursorTrail();
     } else if (this.mode === 'constellation') {
       ctx.clearRect(0, 0, width, height);
       this.updateAndDrawConstellation();
+      this.drawCursorTrail();
     } else {
       ctx.fillStyle = this.palette.bg[0];
       ctx.fillRect(0, 0, width, height);
       this.drawVoronoi();
+      this.drawCursorTrail();
     }
   }
 
@@ -183,10 +204,14 @@ export class GenerativeRenderer {
         const dx = mouseX - p.x;
         const dy = mouseY - p.y;
         const dist = Math.hypot(dx, dy);
-        if (dist < 180) {
-          const force = (1 - dist / 180) * 0.6;
-          p.vx += (dx / dist) * force;
-          p.vy += (dy / dist) * force;
+        if (dist > 0.01 && dist < 190) {
+          const force = (1 - dist / 190) * 0.9;
+          const nx = dx / dist;
+          const ny = dy / dist;
+          p.vx -= nx * force * 0.7;
+          p.vy -= ny * force * 0.7;
+          p.vx += -ny * force * 0.52;
+          p.vy += nx * force * 0.52;
         }
       }
 
@@ -226,9 +251,14 @@ export class GenerativeRenderer {
         const dx = mouseX - p.x;
         const dy = mouseY - p.y;
         const dist = Math.hypot(dx, dy);
-        if (dist < 200) {
-          p.vx += (dx / dist) * 0.08;
-          p.vy += (dy / dist) * 0.08;
+        if (dist > 0.01 && dist < 210) {
+          const force = (1 - dist / 210) * 0.14;
+          const nx = dx / dist;
+          const ny = dy / dist;
+          p.vx -= nx * force;
+          p.vy -= ny * force;
+          p.vx += -ny * force * 0.75;
+          p.vy += nx * force * 0.75;
         }
       }
       p.vx *= 0.96;
@@ -270,13 +300,23 @@ export class GenerativeRenderer {
   }
 
   private drawVoronoi() {
-    const { ctx, width, height, voronoiPoints, palette, time } = this;
+    const { ctx, width, height, voronoiPoints, palette, time, mouseX, mouseY } = this;
     const t = time * 0.008;
 
     for (let i = 0; i < voronoiPoints.length; i++) {
       const p = voronoiPoints[i];
       p.x += p.vx;
       p.y += p.vy;
+      if (mouseX > 0) {
+        const dx = mouseX - p.x;
+        const dy = mouseY - p.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > 0.01 && dist < 240) {
+          const force = (1 - dist / 240) * 0.16;
+          p.vx -= (dx / dist) * force;
+          p.vy -= (dy / dist) * force;
+        }
+      }
       if (p.x < 0 || p.x > width) p.vx *= -1;
       if (p.y < 0 || p.y > height) p.vy *= -1;
     }
@@ -329,6 +369,55 @@ export class GenerativeRenderer {
     }
     ctx.globalAlpha = 1;
   }
+
+  private drawCursorTrail() {
+    const { ctx, mouseX, mouseY } = this;
+    this.cursorTrail = this.cursorTrail.filter(point => point.age < point.life);
+
+    for (const point of this.cursorTrail) {
+      const progress = point.age / point.life;
+      const alpha = (1 - progress) * point.strength;
+      const radius = 14 + progress * 74;
+
+      const gradient = ctx.createRadialGradient(point.x, point.y, 0, point.x, point.y, radius);
+      gradient.addColorStop(0, point.color);
+      gradient.addColorStop(0.22, point.color);
+      gradient.addColorStop(1, 'transparent');
+
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = alpha * 0.2;
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.globalAlpha = alpha * 0.55;
+      ctx.strokeStyle = point.color;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, radius * 0.36, 0, Math.PI * 2);
+      ctx.stroke();
+
+      point.age++;
+    }
+
+    if (mouseX > 0 && mouseY > 0) {
+      const [cyan, magenta] = this.palette.neon;
+      const gradient = ctx.createRadialGradient(mouseX, mouseY, 0, mouseX, mouseY, 110);
+      gradient.addColorStop(0, cyan);
+      gradient.addColorStop(0.22, magenta);
+      gradient.addColorStop(1, 'transparent');
+
+      ctx.globalAlpha = 0.16;
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(mouseX, mouseY, 110, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
 }
 
 interface Particle {
@@ -340,4 +429,13 @@ interface Particle {
   life: number;
   color: string;
   size: number;
+}
+
+interface CursorTrailPoint {
+  x: number;
+  y: number;
+  age: number;
+  life: number;
+  strength: number;
+  color: string;
 }
