@@ -4,6 +4,7 @@
  */
 
 import * as THREE from 'three';
+import { gsap } from 'gsap';
 import { ThreeVisualizer, DARK_THEME, type VisualizerTheme } from './ThreeVisualizer';
 
 interface SortBar {
@@ -64,6 +65,7 @@ export class SortingVisualizer extends ThreeVisualizer {
 
   private clearBars() {
     for (const bar of this.bars) {
+      gsap.killTweensOf([bar.mesh.position, bar.mesh.scale, bar.material.color, bar.material.emissive, bar.material]);
       this.scene.remove(bar.mesh);
       bar.mesh.geometry.dispose();
       bar.material.dispose();
@@ -151,14 +153,21 @@ export class SortingVisualizer extends ThreeVisualizer {
       const bar = this.bars[i];
       const newValue = values[i];
       const newH = (newValue / newMax) * this.barHeightScale + 0.2;
-      
-      // Update the bar's geometry height by scaling
-      const currentScaleY = bar.mesh.scale.y || 1;
       const targetScaleY = newH / (bar.mesh.geometry as THREE.BoxGeometry).parameters.height;
-      bar.mesh.scale.y = targetScaleY;
-      
-      // Re-center vertically
-      bar.mesh.position.y = newH / 2;
+
+      gsap.to(bar.mesh.scale, {
+        y: targetScaleY,
+        duration: 0.46,
+        ease: 'power2.inOut',
+        overwrite: 'auto',
+      });
+
+      gsap.to(bar.mesh.position, {
+        y: newH / 2,
+        duration: 0.46,
+        ease: 'power2.inOut',
+        overwrite: 'auto',
+      });
       
       // Update stored value
       bar.value = newValue;
@@ -197,12 +206,38 @@ export class SortingVisualizer extends ThreeVisualizer {
           break;
       }
 
-      bar.material.color.lerp(targetColor, 0.25);
-      bar.material.emissive.lerp(targetColor, 0.25);
-      bar.material.emissiveIntensity += (emissiveIntensity - bar.material.emissiveIntensity) * 0.25;
-      // Subtle pulse on x/z
-      bar.mesh.scale.x += (pulse - bar.mesh.scale.x) * 0.25;
-      bar.mesh.scale.z += (pulse - bar.mesh.scale.z) * 0.25;
+      gsap.to(bar.material.color, {
+        r: targetColor.r,
+        g: targetColor.g,
+        b: targetColor.b,
+        duration: 0.32,
+        ease: 'power2.out',
+        overwrite: 'auto',
+      });
+
+      gsap.to(bar.material.emissive, {
+        r: targetColor.r,
+        g: targetColor.g,
+        b: targetColor.b,
+        duration: 0.32,
+        ease: 'power2.out',
+        overwrite: 'auto',
+      });
+
+      gsap.to(bar.material, {
+        emissiveIntensity,
+        duration: 0.34,
+        ease: 'power2.out',
+        overwrite: 'auto',
+      });
+
+      gsap.to(bar.mesh.scale, {
+        x: pulse,
+        z: pulse,
+        duration: bar.state === 'swapping' ? 0.42 : 0.32,
+        ease: bar.state === 'swapping' ? 'elastic.out(1, 0.55)' : 'power2.out',
+        overwrite: 'auto',
+      });
     }
   }
 
@@ -232,20 +267,8 @@ export class SortingVisualizer extends ThreeVisualizer {
     }
 
     for (const bar of this.bars) {
-      // Idle floating animation
-      if (bar.state === 'idle') {
-        const floatY = Math.sin(_elapsed * 2 + bar.index * 0.5) * 0.05;
-        bar.mesh.position.y += floatY * 0.1;
-      }
-
       // Gentle rotation
       bar.mesh.rotation.y += delta * 0.01;
-
-      // Smooth state transition
-      bar.material.color.lerp(this.idleColor(bar.index), t * 0.02);
-      if (bar.state === 'idle') {
-        bar.material.emissiveIntensity += (0.2 - bar.material.emissiveIntensity) * t * 0.1;
-      }
     }
 
     // Camera gentle orbit

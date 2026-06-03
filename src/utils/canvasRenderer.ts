@@ -164,11 +164,6 @@ export class DoubleBufferedRenderer {
       ctx.restore();
     }
 
-    // Draw swap arrows between comparing elements
-    if (comparing.length >= 2) {
-      this.drawSwapArrows(ctx, array, comparing, maxValue, chartHeight, baseline, paddingX, gap, barWidth);
-    }
-
     // Copy to main canvas
     this.ctx.drawImage(this.offscreenCanvas, 0, 0, width, height);
   }
