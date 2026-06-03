@@ -143,6 +143,46 @@ export class SortingVisualizer extends ThreeVisualizer {
     this.syncVisualStates();
   }
 
+  playCompletionEffect() {
+    this.bars.forEach((bar, index) => {
+      if (bar.state !== 'sorted') {
+        return;
+      }
+
+      const delay = index * 0.025;
+      gsap.to(bar.material, {
+        emissiveIntensity: 1.15,
+        duration: 0.24,
+        delay,
+        ease: 'power2.out',
+        yoyo: true,
+        repeat: 1,
+        overwrite: 'auto',
+      });
+
+      gsap.to(bar.mesh.position, {
+        y: bar.mesh.position.y + 0.24,
+        duration: 0.28,
+        delay,
+        ease: 'power2.out',
+        yoyo: true,
+        repeat: 1,
+        overwrite: 'auto',
+      });
+
+      gsap.to(bar.mesh.scale, {
+        x: 1.08,
+        z: 1.08,
+        duration: 0.28,
+        delay,
+        ease: 'power2.out',
+        yoyo: true,
+        repeat: 1,
+        overwrite: 'auto',
+      });
+    });
+  }
+
   /**
    * Update bar heights to reflect new array values during sorting
    */
@@ -280,6 +320,7 @@ export class SortingVisualizer extends ThreeVisualizer {
 
   reset() {
     for (const bar of this.bars) {
+      gsap.killTweensOf([bar.mesh.position, bar.mesh.scale, bar.material.color, bar.material.emissive, bar.material]);
       bar.state = 'idle';
     }
     this.syncVisualStates();

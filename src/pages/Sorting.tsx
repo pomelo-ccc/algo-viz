@@ -1,4 +1,4 @@
-import { createSignal, onMount, onCleanup, createEffect, createMemo } from 'solid-js';
+import { createSignal, onMount, onCleanup, createEffect, createMemo, For } from 'solid-js';
 import { sortingCodes, languageLabels, type Language } from '../utils/codeData';
 import Dropdown from '../components/Dropdown';
 import ControlPanel from '../components/ControlPanel';
@@ -50,6 +50,19 @@ export default function Sorting() {
   const [currentStep, setCurrentStep] = createSignal(-1);
   const [totalSteps, setTotalSteps] = createSignal(0);
   const [viewMode, setViewMode] = createSignal<'2d' | '3d'>('2d');
+  const [completionFxEnabled, setCompletionFxEnabled] = createSignal(true);
+  const [codeTheme, setCodeTheme] = createSignal<'zed' | 'dark' | 'light'>('zed');
+  const [codeFont, setCodeFont] = createSignal<'jetbrains' | 'ibm' | 'sfmono'>('jetbrains');
+  const codeThemeLabels = {
+    zed: 'Zed Theme',
+    dark: 'Dark',
+    light: 'Light',
+  } as const;
+  const codeFontLabels = {
+    jetbrains: 'JetBrains Mono',
+    ibm: 'IBM Plex Mono',
+    sfmono: 'SF Mono',
+  } as const;
 
   onMount(() => {
     // Initialize 2D renderer (immediately, canvas is visible)
@@ -153,9 +166,34 @@ export default function Sorting() {
     setTotalSteps(0);
 
     if (viewMode() === '3d' && visualizer3D) {
+      visualizer3D.reset();
       visualizer3D.setValues(arr);
     } else if (viewMode() === '2d' && renderer2D) {
       renderer2D.render({ array: arr, comparing: [], swapping: [], sorted: [] });
+    }
+  };
+
+  const renderCompletedState = (values: number[]) => {
+    const sortedIndices = Array.from({ length: values.length }, (_, index) => index);
+    if (viewMode() === '3d' && visualizer3D) {
+      visualizer3D.updateArray(values);
+      visualizer3D.markSorted(sortedIndices);
+      if (completionFxEnabled()) {
+        visualizer3D.playCompletionEffect();
+      }
+      return;
+    }
+
+    if (viewMode() === '2d' && renderer2D) {
+      renderer2D.render({
+        array: values,
+        comparing: [],
+        swapping: [],
+        sorted: sortedIndices,
+      });
+      if (completionFxEnabled()) {
+        renderer2D.playCompletionEffect();
+      }
     }
   };
 
@@ -182,6 +220,9 @@ export default function Sorting() {
         if (visualizer3D) {
           if (arr.length > 0) {
             visualizer3D.setValues(arr);
+            if (isCompleted()) {
+              renderCompletedState(arr);
+            }
           } else {
             visualizer3D.generateRandomArray(arraySize());
           }
@@ -192,7 +233,11 @@ export default function Sorting() {
       setTimeout(() => {
         const arr = [...array()];
         if (renderer2D) {
-          renderer2D.render({ array: arr.length > 0 ? arr : [], comparing: [], swapping: [], sorted: [] });
+          if (isCompleted()) {
+            renderCompletedState(arr);
+          } else {
+            renderer2D.render({ array: arr.length > 0 ? arr : [], comparing: [], swapping: [], sorted: [] });
+          }
         }
       }, 50);
     }
@@ -371,6 +416,14 @@ export default function Sorting() {
         break;
     }
 
+    if (workingArr.length > 0) {
+      steps.push({
+        state: [...workingArr],
+        description: '全部元素已排序',
+        sorted: Array.from({ length: workingArr.length }, (_, index) => index),
+      });
+    }
+
     return steps;
   };
 
@@ -385,6 +438,9 @@ export default function Sorting() {
     controller.setSpeed(speed());
     controller.play().then(() => {
       setIsRunning(false);
+      const completedArray = [...arr].sort((a, b) => a - b);
+      setArray(completedArray);
+      renderCompletedState(completedArray);
       setSteps(prev => ['排序完成', ...prev]);
     });
   };
@@ -452,6 +508,35 @@ export default function Sorting() {
   });
 
   const renderArrayLine = (values: number[]) => values.join('  ');
+  const isCompleted = createMemo(() => {
+    if (totalSteps() === 0) return false;
+    return currentStep() >= totalSteps() - 1 && array().length > 0;
+  });
+  const snapshotCards = createMemo(() => [
+    {
+      label: '初始数据',
+      tone: 'initial',
+      caption: 'Raw input',
+      values: initialArray(),
+    },
+    {
+      label: '当前状态',
+      tone: isCompleted() ? 'complete' : isRunning() ? 'active' : 'current',
+      caption: isCompleted() ? 'Completed' : isRunning() ? 'Live state' : 'Ready state',
+      values: array(),
+    },
+    {
+      label: '最终结果',
+      tone: 'result',
+      caption: 'Sorted target',
+      values: finalArray(),
+    },
+  ] as const);
+
+  const snapshotSummary = (values: number[]) => {
+    if (values.length === 0) return '0 items';
+    return `${values.length} items · min ${Math.min(...values)} · max ${Math.max(...values)}`;
+  };
 
   return (
     <main class="visualization-page">
@@ -545,24 +630,101 @@ export default function Sorting() {
           ]}
         />
 
-        <div class="info-panel sorting-datasets-panel">
-          <div class="sorting-datasets-header">
-            <h3>数据快照</h3>
-            <div class="sorting-datasets-meta">{array().length} 个元素</div>
+        <div class="info-panel sorting-display-panel">
+          <div class="sorting-display-header">
+            <div>
+              <h3>展示设置</h3>
+              <div class="sorting-display-subtitle">控制完成态反馈与代码阅读方式</div>
+            </div>
           </div>
-          <div class="sorting-datasets-grid">
-            <div class="sorting-dataset-card">
-              <div class="sorting-dataset-label">初始数据</div>
-              <div class="sorting-dataset-values">{renderArrayLine(initialArray())}</div>
+          <div class="sorting-display-grid">
+            <div class="sorting-display-group">
+              <div class="sorting-display-label">完成特效</div>
+              <div class="sorting-toggle-row">
+                <button
+                  class={`sorting-toggle-btn ${completionFxEnabled() ? 'active' : ''}`}
+                  onClick={() => setCompletionFxEnabled(true)}
+                  type="button"
+                >
+                  开启
+                </button>
+                <button
+                  class={`sorting-toggle-btn ${!completionFxEnabled() ? 'active' : ''}`}
+                  onClick={() => setCompletionFxEnabled(false)}
+                  type="button"
+                >
+                  关闭
+                </button>
+              </div>
             </div>
-            <div class="sorting-dataset-card">
-              <div class="sorting-dataset-label">当前状态</div>
-              <div class="sorting-dataset-values">{renderArrayLine(array())}</div>
+            <div class="sorting-display-group">
+              <div class="sorting-display-label">代码主题</div>
+              <Dropdown
+                class="code-toolbar-select"
+                value={codeTheme()}
+                onChange={(value) => setCodeTheme(value as 'zed' | 'dark' | 'light')}
+                options={[
+                  { label: 'Zed Theme', value: 'zed' },
+                  { label: 'Dark', value: 'dark' },
+                  { label: 'Light', value: 'light' },
+                ]}
+              />
             </div>
-            <div class="sorting-dataset-card">
-              <div class="sorting-dataset-label">最终结果</div>
-              <div class="sorting-dataset-values">{renderArrayLine(finalArray())}</div>
+            <div class="sorting-display-group">
+              <div class="sorting-display-label">代码字体</div>
+              <Dropdown
+                class="code-toolbar-select"
+                value={codeFont()}
+                onChange={(value) => setCodeFont(value as 'jetbrains' | 'ibm' | 'sfmono')}
+                options={[
+                  { label: 'JetBrains Mono', value: 'jetbrains' },
+                  { label: 'IBM Plex Mono', value: 'ibm' },
+                  { label: 'SF Mono', value: 'sfmono' },
+                ]}
+              />
             </div>
+          </div>
+        </div>
+
+        <div class="info-panel data-snapshot-panel">
+          <div class="data-snapshot-header">
+            <div>
+              <h3>数据快照</h3>
+              <div class="data-snapshot-subtitle">为排序、树、图等视图保留统一的数据观察层</div>
+            </div>
+            <div class="data-snapshot-meta">{array().length} 个元素</div>
+          </div>
+          <div class="data-snapshot-grid">
+            <For each={snapshotCards()}>
+              {(card) => {
+                const maxValue = Math.max(...card.values, 1);
+                return (
+                  <section class={`data-snapshot-card tone-${card.tone}`}>
+                    <div class="data-snapshot-card-header">
+                      <div>
+                        <div class="data-snapshot-label">{card.label}</div>
+                        <div class="data-snapshot-caption">{card.caption}</div>
+                      </div>
+                      <div class="data-snapshot-summary">{snapshotSummary(card.values)}</div>
+                    </div>
+                    <div class="data-snapshot-track" aria-hidden="true">
+                      <For each={card.values}>
+                        {(value) => (
+                          <div class="data-snapshot-track-item">
+                            <span
+                              class="data-snapshot-track-bar"
+                              style={{ height: `${Math.max(18, (value / maxValue) * 56)}px` }}
+                            />
+                            <span class="data-snapshot-track-value">{value}</span>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                    <div class="data-snapshot-values">{renderArrayLine(card.values)}</div>
+                  </section>
+                );
+              }}
+            </For>
           </div>
         </div>
 
@@ -591,14 +753,18 @@ export default function Sorting() {
         <div class="code-panel">
           <div class="code-panel-header">
             <h3>算法代码</h3>
-            <Dropdown
-              class="code-lang-select"
-              value={lang()}
-              onChange={(value) => setLang(value as Language)}
-              options={Object.entries(languageLabels).map(([key, label]) => ({ value: key, label }))}
-            />
+            <div class="code-toolbar">
+              <Dropdown
+                class="code-lang-select"
+                value={lang()}
+                onChange={(value) => setLang(value as Language)}
+                options={Object.entries(languageLabels).map(([key, label]) => ({ value: key, label }))}
+              />
+              <span class="code-toolbar-chip">{codeThemeLabels[codeTheme()]}</span>
+              <span class="code-toolbar-chip">{codeFontLabels[codeFont()]}</span>
+            </div>
           </div>
-          <pre class="code-block code-block-prism">
+          <pre class={`code-block code-block-prism code-theme-${codeTheme()} code-font-${codeFont()}`}>
             <code class={`language-${prismLanguage()}`} innerHTML={highlightedCode()} />
           </pre>
         </div>

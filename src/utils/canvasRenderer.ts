@@ -45,6 +45,7 @@ export class DoubleBufferedRenderer {
   private animatedValues: number[] = [];
   private animatedState: RenderState = { array: [], comparing: [], swapping: [], sorted: [] };
   private valueTweenTarget: Record<number, number> = {};
+  private completionSweep = { progress: 0, intensity: 0 };
 
   constructor(canvas: HTMLCanvasElement, config: Partial<RenderConfig> = {}) {
     this.canvas = canvas;
@@ -93,6 +94,27 @@ export class DoubleBufferedRenderer {
     this.drawFrame();
   }
 
+  playCompletionEffect() {
+    gsap.killTweensOf(this.completionSweep);
+    this.completionSweep.progress = 0;
+    this.completionSweep.intensity = 1;
+
+    gsap.to(this.completionSweep, {
+      progress: 1,
+      duration: 1.05,
+      ease: 'power2.inOut',
+      onUpdate: () => this.drawFrame(),
+      onComplete: () => {
+        gsap.to(this.completionSweep, {
+          intensity: 0,
+          duration: 0.52,
+          ease: 'power2.out',
+          onUpdate: () => this.drawFrame(),
+        });
+      },
+    });
+  }
+
   private drawFrame() {
     const ctx = this.offscreenCtx;
     const width = this.offscreenCanvas.width / this.dpr;
@@ -128,6 +150,7 @@ export class DoubleBufferedRenderer {
 
       if (sorted.includes(i)) {
         color = this.config.sortedColor;
+        isActive = this.completionSweep.intensity > 0.02;
       } else if (swapping.includes(i)) {
         color = this.config.swappingColor;
         isActive = true;
@@ -179,6 +202,17 @@ export class DoubleBufferedRenderer {
       ctx.textBaseline = 'bottom';
       ctx.fillText(valueLabel, x + bw / 2, y - 8);
       ctx.restore();
+    }
+
+    if (this.completionSweep.intensity > 0.02) {
+      const sweepX = width * this.completionSweep.progress;
+      const sweepWidth = Math.max(72, width * 0.2);
+      const sweep = ctx.createLinearGradient(sweepX - sweepWidth, 0, sweepX + sweepWidth, 0);
+      sweep.addColorStop(0, 'rgba(255, 255, 255, 0)');
+      sweep.addColorStop(0.5, `rgba(125, 249, 255, ${0.2 * this.completionSweep.intensity})`);
+      sweep.addColorStop(1, 'rgba(255, 255, 255, 0)');
+      ctx.fillStyle = sweep;
+      ctx.fillRect(0, 0, width, height);
     }
 
     // Copy to main canvas
@@ -368,6 +402,7 @@ export class DoubleBufferedRenderer {
       cancelAnimationFrame(this.animationId);
     }
     gsap.killTweensOf(this.animatedValues);
+    gsap.killTweensOf(this.completionSweep);
     this.particles = [];
   }
 }
@@ -424,7 +459,7 @@ export function createSortingRenderer(canvas: HTMLCanvasElement) {
     barColor: '#3b82f6',
     comparingColor: '#fbbf24',
     swappingColor: '#ef4444',
-    sortedColor: '#2dd4bf',
+    sortedColor: '#60f6cf',
     pivotColor: '#8b5cf6',
     backgroundColor: '#0a0e17',
     gradientEnabled: true,
