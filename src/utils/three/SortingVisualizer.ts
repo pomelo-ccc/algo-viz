@@ -1,6 +1,5 @@
 /**
- * Sorting 3D Visualizer - 3D Elements Style
- * Glass + metal + neon materials with cold color gradients
+ * Sorting 3D Visualizer - restrained monochrome treatment
  */
 
 import * as THREE from 'three';
@@ -33,14 +32,13 @@ export class SortingVisualizer extends ThreeVisualizer {
   }
 
   private createEnvironment() {
-    // Deep space background - no ground plane, just a grid floor
-    this.grid = new THREE.GridHelper(60, 60, 0x1a2a4a, 0x0f1528);
-    (this.grid.material as THREE.LineBasicMaterial).opacity = 0.3;
+    this.grid = new THREE.GridHelper(60, 60, 0x4b5563, 0x1f2937);
+    (this.grid.material as THREE.LineBasicMaterial).opacity = 0.16;
     (this.grid.material as THREE.LineBasicMaterial).transparent = true;
     this.grid.position.y = 0;
     this.scene.add(this.grid);
 
-    this.styleLight = new THREE.PointLight(0x3b82f6, 0.42, 26);
+    this.styleLight = new THREE.PointLight(0xffffff, 0.28, 26);
     this.styleLight.position.set(1.2, 7, 7);
     this.scene.add(this.styleLight);
   }
@@ -88,12 +86,12 @@ export class SortingVisualizer extends ThreeVisualizer {
       const geo = new THREE.BoxGeometry(this.barWidth, h, this.barWidth);
       const mat = new THREE.MeshStandardMaterial({
         color: color.clone(),
-        roughness: 0.15,
-        metalness: 0.85,
+        roughness: 0.36,
+        metalness: 0.28,
         emissive: color.clone(),
-        emissiveIntensity: 0.2,
+        emissiveIntensity: 0.08,
         transparent: true,
-        opacity: 0.9,
+        opacity: 0.96,
       });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.castShadow = true;
@@ -103,12 +101,11 @@ export class SortingVisualizer extends ThreeVisualizer {
       mesh.position.set(x, h / 2, 0);
       this.scene.add(mesh);
 
-      // Neon edge glow
       const edges = new THREE.EdgesGeometry(geo);
       const edgeMat = new THREE.LineBasicMaterial({
-        color: 0x00e5ff,
+        color: 0xd1d5db,
         transparent: true,
-        opacity: 0.5,
+        opacity: 0.28,
       });
       const edgeMesh = new THREE.LineSegments(edges, edgeMat);
       mesh.add(edgeMesh);
@@ -226,23 +223,23 @@ export class SortingVisualizer extends ThreeVisualizer {
           targetColor = this.idleColor(bar.index);
           break;
         case 'comparing':
-          targetColor = new THREE.Color(0x06ffa5);
-          emissiveIntensity = 0.8;
-          pulse = 1.08;
+          targetColor = new THREE.Color(0xe5e7eb);
+          emissiveIntensity = 0.2;
+          pulse = 1.05;
           break;
         case 'swapping':
-          targetColor = new THREE.Color(0xff006e);
-          emissiveIntensity = 1.0;
-          pulse = 1.12;
+          targetColor = new THREE.Color(0xffffff);
+          emissiveIntensity = 0.28;
+          pulse = 1.08;
           break;
         case 'pivot':
-          targetColor = new THREE.Color(0x8338ec);
-          emissiveIntensity = 0.6;
-          pulse = 1.06;
+          targetColor = new THREE.Color(0x9ca3af);
+          emissiveIntensity = 0.14;
+          pulse = 1.04;
           break;
         case 'sorted':
-          targetColor = new THREE.Color(0x00e5ff);
-          emissiveIntensity = 0.5;
+          targetColor = new THREE.Color(0xf3f4f6);
+          emissiveIntensity = 0.16;
           break;
       }
 
@@ -282,28 +279,27 @@ export class SortingVisualizer extends ThreeVisualizer {
   }
 
   private idleColor(index: number): THREE.Color {
-    // Cool gradient palette: cyan -> blue -> purple -> magenta
     const colors = [
-      new THREE.Color(0x00e5ff),
-      new THREE.Color(0x3b82f6),
-      new THREE.Color(0x8338ec),
-      new THREE.Color(0xff006e),
+      new THREE.Color(0x8f98a7),
+      new THREE.Color(0xa5adba),
+      new THREE.Color(0xc2c8d1),
+      new THREE.Color(0x727985),
     ];
     return colors[index % colors.length];
   }
 
   protected onUpdate(delta: number, _elapsed: number) {
     const t = 1 - Math.pow(0.001, delta);
-    const styleColor = new THREE.Color(0x3b82f6);
+    const styleColor = new THREE.Color(0xf3f4f6);
 
     if (this.styleLight) {
       this.styleLight.color.lerp(styleColor, t * 0.5);
-      this.styleLight.intensity += (0.42 - this.styleLight.intensity) * t * 0.35;
+      this.styleLight.intensity += (0.26 - this.styleLight.intensity) * t * 0.35;
     }
 
     if (this.grid) {
       (this.grid.material as THREE.LineBasicMaterial).color.lerp(styleColor, t * 0.05);
-      (this.grid.material as THREE.LineBasicMaterial).opacity += (0.34 - (this.grid.material as THREE.LineBasicMaterial).opacity) * t * 0.12;
+      (this.grid.material as THREE.LineBasicMaterial).opacity += (0.14 - (this.grid.material as THREE.LineBasicMaterial).opacity) * t * 0.12;
     }
 
     for (const bar of this.bars) {

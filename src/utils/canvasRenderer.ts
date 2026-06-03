@@ -307,31 +307,21 @@ export class DoubleBufferedRenderer {
   }
 
   private drawReactiveBackground(ctx: CanvasRenderingContext2D, width: number, height: number) {
-    const px = width * 0.58;
-    const py = height * 0.42;
-    const accent = '#3b82f6';
+    const accent = '#9ca3af';
     const bgGradient = ctx.createLinearGradient(0, 0, width, height);
-    bgGradient.addColorStop(0, '#060a14');
-    bgGradient.addColorStop(0.48, this.config.backgroundColor);
-    bgGradient.addColorStop(1, '#151023');
+    bgGradient.addColorStop(0, '#111317');
+    bgGradient.addColorStop(1, this.config.backgroundColor);
     ctx.fillStyle = bgGradient;
     ctx.fillRect(0, 0, width, height);
 
-    const glow = ctx.createRadialGradient(px, py, 0, px, py, Math.max(width, height) * 0.72);
-    glow.addColorStop(0, this.hexToRgba(accent, 0.13));
-    glow.addColorStop(0.34, this.hexToRgba(accent, 0.06));
-    glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
-    ctx.fillStyle = glow;
-    ctx.fillRect(0, 0, width, height);
-
     ctx.save();
-    ctx.globalAlpha = 0.14;
+    ctx.globalAlpha = 0.1;
     ctx.strokeStyle = accent;
     ctx.lineWidth = 1;
-    for (let x = -40; x < width + 40; x += 46) {
+    for (let x = -24; x < width + 24; x += 44) {
       ctx.beginPath();
-      ctx.moveTo(x + 16, 0);
-      ctx.lineTo(x - 64, height);
+      ctx.moveTo(x + 8, 0);
+      ctx.lineTo(x - 48, height);
       ctx.stroke();
     }
     ctx.restore();
@@ -456,14 +446,14 @@ class Particle {
 
 export function createSortingRenderer(canvas: HTMLCanvasElement) {
   return new DoubleBufferedRenderer(canvas, {
-    barColor: '#3b82f6',
-    comparingColor: '#fbbf24',
-    swappingColor: '#ef4444',
-    sortedColor: '#60f6cf',
-    pivotColor: '#8b5cf6',
-    backgroundColor: '#0a0e17',
+    barColor: '#d4d8df',
+    comparingColor: '#7b818d',
+    swappingColor: '#f2f4f7',
+    sortedColor: '#eef2f6',
+    pivotColor: '#a1a1aa',
+    backgroundColor: '#191c21',
     gradientEnabled: true,
-    glowEnabled: true,
+    glowEnabled: false,
     particleEnabled: false,
   });
 }

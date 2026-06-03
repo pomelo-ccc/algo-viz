@@ -539,13 +539,13 @@ export default function Sorting() {
   };
 
   return (
-    <main class="visualization-page">
+    <main class="visualization-page sorting-page-minimal">
       <div class="container">
         <div class="visualization-header">
           <h1>排序算法</h1>
           <p class="description">
-            排序算法将无序的数据序列整理为有序序列。3D 可视化让你从多角度观察算法的执行过程。
-            <span class="hint">鼠标拖拽旋转视角 · 滚轮缩放</span>
+            让比较、交换和收敛过程以尽可能安静的方式被看见。界面尽量退后，把数据与步骤留在前面。
+            <span class="hint">3D 视图支持拖拽旋转与滚轮缩放</span>
           </p>
         </div>
 
