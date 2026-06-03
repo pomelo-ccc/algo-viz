@@ -1,5 +1,15 @@
-import { createSignal, Show } from 'solid-js';
+import { createSignal, Show, type JSX } from 'solid-js';
 import './ControlPanel.css';
+
+export interface ExtraControl {
+  label?: string;
+  icon?: JSX.Element;
+  title?: string;
+  ariaLabel?: string;
+  onClick: () => void;
+  variant?: 'primary' | 'secondary';
+  compact?: boolean;
+}
 
 export interface ControlPanelProps {
   isRunning: boolean;
@@ -13,7 +23,7 @@ export interface ControlPanelProps {
   onStepBackward: () => void;
   onSpeedChange: (speed: number) => void;
   onGenerate: () => void;
-  extraControls?: Array<{ label: string; onClick: () => void; variant?: 'primary' | 'secondary' }>;
+  extraControls?: ExtraControl[];
 }
 
 export default function ControlPanel(props: ControlPanelProps) {
@@ -104,10 +114,12 @@ export default function ControlPanel(props: ControlPanelProps) {
         <div class="control-actions">
           {props.extraControls?.map((btn) => (
             <button
-              class={`control-btn ${btn.variant === 'primary' ? 'control-btn-primary' : ''}`}
+              class={`control-btn ${btn.variant === 'primary' ? 'control-btn-primary' : ''} ${btn.compact ? 'control-btn-compact' : ''} ${btn.label && !btn.icon ? 'control-btn-text' : ''}`}
               onClick={btn.onClick}
+              title={btn.title ?? btn.label}
+              aria-label={btn.ariaLabel ?? btn.label ?? btn.title}
             >
-              {btn.label}
+              {btn.icon ?? btn.label}
             </button>
           ))}
           <button class="control-btn" onClick={props.onReset} title="重置 (R)">

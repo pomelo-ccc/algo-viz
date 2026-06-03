@@ -32,6 +32,20 @@
   transition: border-color 0.2s ease, color 0.2s ease, background-color 0.2s ease, opacity 0.2s ease;
 }
 
+.control-btn-text {
+  width: auto;
+  min-width: 84px;
+  padding: 0 1rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-family: var(--font-sans);
+}
+
+.control-btn-compact {
+  width: 40px;
+  height: 40px;
+}
+
 .control-btn:hover:not(:disabled) {
   background: var(--bg-secondary);
   border-color: var(--text-secondary);

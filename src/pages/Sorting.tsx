@@ -1,7 +1,9 @@
 import { createSignal, onMount, onCleanup, createEffect, createMemo, For } from 'solid-js';
 import { sortingCodes, languageLabels, type Language } from '../utils/codeData';
+import { sortingContent, sortingOverview } from '../utils/algorithmContent';
 import Dropdown from '../components/Dropdown';
 import ControlPanel from '../components/ControlPanel';
+import SettingsDrawer from '../components/SettingsDrawer';
 import { AnimationController, type AnimStep } from '../utils/animation';
 import { createSortingRenderer, type RenderState } from '../utils/canvasRenderer';
 import { SortingVisualizer } from '../utils/three/SortingVisualizer';
@@ -53,6 +55,7 @@ export default function Sorting() {
   const [completionFxEnabled, setCompletionFxEnabled] = createSignal(true);
   const [codeTheme, setCodeTheme] = createSignal<'zed' | 'dark' | 'light'>('zed');
   const [codeFont, setCodeFont] = createSignal<'jetbrains' | 'ibm' | 'sfmono'>('jetbrains');
+  const [settingsOpen, setSettingsOpen] = createSignal(false);
   const codeThemeLabels = {
     zed: 'Zed Theme',
     dark: 'Dark',
@@ -506,6 +509,7 @@ export default function Sorting() {
     const grammar = Prism.languages[prismLanguage()] ?? Prism.languages.javascript;
     return Prism.highlight(source, grammar, prismLanguage());
   });
+  const currentSortingContent = createMemo(() => sortingContent[algorithm()] ?? sortingContent.bubble);
 
   const renderArrayLine = (values: number[]) => values.join('  ');
   const isCompleted = createMemo(() => {
@@ -544,9 +548,32 @@ export default function Sorting() {
         <div class="visualization-header">
           <h1>排序算法</h1>
           <p class="description">
-            让比较、交换和收敛过程以尽可能安静的方式被看见。界面尽量退后，把数据与步骤留在前面。
-            <span class="hint">3D 视图支持拖拽旋转与滚轮缩放</span>
+            {sortingOverview.summary}
+            <span class="hint">{currentSortingContent().complexityNote}</span>
           </p>
+        </div>
+
+        <div class="info-panel algorithm-explainer-panel">
+          <div class="algorithm-explainer-grid">
+            <section class="algorithm-explainer-primary">
+              <div class="algorithm-explainer-kicker">{sortingOverview.title}</div>
+              <h2>{currentSortingContent().title}</h2>
+              <p>{currentSortingContent().summary}</p>
+            </section>
+            <section class="algorithm-explainer-secondary">
+              <div class="algorithm-explainer-block">
+                <div class="algorithm-explainer-label">工作方式</div>
+                <p>{currentSortingContent().howItWorks}</p>
+              </div>
+              <div class="algorithm-explainer-block">
+                <div class="algorithm-explainer-label">为什么重要</div>
+                <p>{sortingOverview.howItWorks}</p>
+              </div>
+              <a class="algorithm-source-link" href={currentSortingContent().sourceUrl} target="_blank" rel="noreferrer">
+                来源参考 · {currentSortingContent().sourceLabel}
+              </a>
+            </section>
+          </div>
         </div>
 
         <div class="controls">
@@ -627,64 +654,20 @@ export default function Sorting() {
               onClick: toggleViewMode,
               variant: 'secondary' as const,
             },
+            {
+              title: '设置',
+              ariaLabel: '打开排序页设置',
+              compact: true,
+              onClick: () => setSettingsOpen(true),
+              icon: (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="3.25" />
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82L4.21 7a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33h.01A1.65 1.65 0 0 0 9.93 3H10a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                </svg>
+              ),
+            },
           ]}
         />
-
-        <div class="info-panel sorting-display-panel">
-          <div class="sorting-display-header">
-            <div>
-              <h3>展示设置</h3>
-              <div class="sorting-display-subtitle">控制完成态反馈与代码阅读方式</div>
-            </div>
-          </div>
-          <div class="sorting-display-grid">
-            <div class="sorting-display-group">
-              <div class="sorting-display-label">完成特效</div>
-              <div class="sorting-toggle-row">
-                <button
-                  class={`sorting-toggle-btn ${completionFxEnabled() ? 'active' : ''}`}
-                  onClick={() => setCompletionFxEnabled(true)}
-                  type="button"
-                >
-                  开启
-                </button>
-                <button
-                  class={`sorting-toggle-btn ${!completionFxEnabled() ? 'active' : ''}`}
-                  onClick={() => setCompletionFxEnabled(false)}
-                  type="button"
-                >
-                  关闭
-                </button>
-              </div>
-            </div>
-            <div class="sorting-display-group">
-              <div class="sorting-display-label">代码主题</div>
-              <Dropdown
-                class="code-toolbar-select"
-                value={codeTheme()}
-                onChange={(value) => setCodeTheme(value as 'zed' | 'dark' | 'light')}
-                options={[
-                  { label: 'Zed Theme', value: 'zed' },
-                  { label: 'Dark', value: 'dark' },
-                  { label: 'Light', value: 'light' },
-                ]}
-              />
-            </div>
-            <div class="sorting-display-group">
-              <div class="sorting-display-label">代码字体</div>
-              <Dropdown
-                class="code-toolbar-select"
-                value={codeFont()}
-                onChange={(value) => setCodeFont(value as 'jetbrains' | 'ibm' | 'sfmono')}
-                options={[
-                  { label: 'JetBrains Mono', value: 'jetbrains' },
-                  { label: 'IBM Plex Mono', value: 'ibm' },
-                  { label: 'SF Mono', value: 'sfmono' },
-                ]}
-              />
-            </div>
-          </div>
-        </div>
 
         <div class="info-panel data-snapshot-panel">
           <div class="data-snapshot-header">
@@ -779,6 +762,61 @@ export default function Sorting() {
             )}
           </div>
         </div>
+
+        <SettingsDrawer
+          open={settingsOpen()}
+          onClose={() => setSettingsOpen(false)}
+          title="排序页设置"
+          description="控制完成特效与代码阅读方式。设置保留在当前页面会话中。"
+        >
+          <div class="sorting-display-grid">
+            <div class="sorting-display-group">
+              <div class="sorting-display-label">完成特效</div>
+              <div class="sorting-toggle-row">
+                <button
+                  class={`sorting-toggle-btn ${completionFxEnabled() ? 'active' : ''}`}
+                  onClick={() => setCompletionFxEnabled(true)}
+                  type="button"
+                >
+                  开启
+                </button>
+                <button
+                  class={`sorting-toggle-btn ${!completionFxEnabled() ? 'active' : ''}`}
+                  onClick={() => setCompletionFxEnabled(false)}
+                  type="button"
+                >
+                  关闭
+                </button>
+              </div>
+            </div>
+            <div class="sorting-display-group">
+              <div class="sorting-display-label">代码主题</div>
+              <Dropdown
+                class="code-toolbar-select"
+                value={codeTheme()}
+                onChange={(value) => setCodeTheme(value as 'zed' | 'dark' | 'light')}
+                options={[
+                  { label: 'Zed Theme', value: 'zed' },
+                  { label: 'Dark', value: 'dark' },
+                  { label: 'Light', value: 'light' },
+                ]}
+              />
+            </div>
+            <div class="sorting-display-group">
+              <div class="sorting-display-label">代码字体</div>
+              <Dropdown
+                class="code-toolbar-select"
+                value={codeFont()}
+                onChange={(value) => setCodeFont(value as 'jetbrains' | 'ibm' | 'sfmono')}
+                options={[
+                  { label: 'JetBrains Mono', value: 'jetbrains' },
+                  { label: 'IBM Plex Mono', value: 'ibm' },
+                  { label: 'SF Mono', value: 'sfmono' },
+                ]}
+              />
+            </div>
+          </div>
+        </SettingsDrawer>
       </div>
     </main>
   );

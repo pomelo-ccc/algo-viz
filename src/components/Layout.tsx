@@ -41,6 +41,7 @@ interface LayoutProps {
 
 export default function Layout(props: LayoutProps) {
   const location = useLocation();
+  const isHome = () => location.pathname === '/';
   const [menuOpen, setMenuOpen] = createSignal(false);
   const [showShortcuts, setShowShortcuts] = createSignal(false);
 
@@ -60,8 +61,8 @@ export default function Layout(props: LayoutProps) {
   });
 
   return (
-    <div>
-      <header class="site-header">
+    <div class={isHome() ? 'app-shell app-shell-home' : 'app-shell app-shell-content'}>
+      <header class={isHome() ? 'site-header site-header-home' : 'site-header site-header-content'}>
         <div class="container">
           <div class="site-title">Algorithm Visualizer</div>
           <button
@@ -92,7 +93,7 @@ export default function Layout(props: LayoutProps) {
           </div>
         </div>
       </header>
-      <div class="main-content">
+      <div class={isHome() ? 'main-content main-content-home' : 'main-content main-content-content'}>
         {props.children}
       </div>
       <footer class="site-footer">
