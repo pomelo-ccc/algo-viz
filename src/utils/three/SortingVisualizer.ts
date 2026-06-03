@@ -25,6 +25,7 @@ export class SortingVisualizer extends ThreeVisualizer {
   private barGap = 0.12;
   private barHeightScale = 5;
   private hoverBar: number | null = null;
+  private styleLight: THREE.PointLight | null = null;
 
   protected onInit() {
     this.createEnvironment();
@@ -37,6 +38,10 @@ export class SortingVisualizer extends ThreeVisualizer {
     (this.grid.material as THREE.LineBasicMaterial).transparent = true;
     this.grid.position.y = 0;
     this.scene.add(this.grid);
+
+    this.styleLight = new THREE.PointLight(0x3b82f6, 0.42, 26);
+    this.styleLight.position.set(1.2, 7, 7);
+    this.scene.add(this.styleLight);
   }
 
   protected onThemeChange(theme: VisualizerTheme) {
@@ -214,6 +219,17 @@ export class SortingVisualizer extends ThreeVisualizer {
 
   protected onUpdate(delta: number, _elapsed: number) {
     const t = 1 - Math.pow(0.001, delta);
+    const styleColor = new THREE.Color(0x3b82f6);
+
+    if (this.styleLight) {
+      this.styleLight.color.lerp(styleColor, t * 0.5);
+      this.styleLight.intensity += (0.42 - this.styleLight.intensity) * t * 0.35;
+    }
+
+    if (this.grid) {
+      (this.grid.material as THREE.LineBasicMaterial).color.lerp(styleColor, t * 0.05);
+      (this.grid.material as THREE.LineBasicMaterial).opacity += (0.34 - (this.grid.material as THREE.LineBasicMaterial).opacity) * t * 0.12;
+    }
 
     for (const bar of this.bars) {
       // Idle floating animation

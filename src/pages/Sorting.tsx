@@ -468,7 +468,10 @@ export default function Sorting() {
           </div>
         </div>
 
-        <div class="canvas-container">
+        <div
+          class="canvas-container sorting-preview-shell"
+          data-view-mode={viewMode()}
+        >
           <div
             ref={el => { container3DRef = el; }}
             class="three-container"

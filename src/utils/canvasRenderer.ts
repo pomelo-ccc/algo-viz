@@ -39,6 +39,7 @@ export class DoubleBufferedRenderer {
   private particles: Particle[] = [];
   private config: RenderConfig;
   private dpr: number = 1;
+  private lastState: RenderState | null = null;
 
   constructor(canvas: HTMLCanvasElement, config: Partial<RenderConfig> = {}) {
     this.canvas = canvas;
@@ -61,12 +62,13 @@ export class DoubleBufferedRenderer {
     this.canvas.width = rect.width * this.dpr;
     this.canvas.height = rect.height * this.dpr;
 
-    this.ctx.scale(this.dpr, this.dpr);
-    this.offscreenCtx.scale(this.dpr, this.dpr);
+    this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    this.offscreenCtx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
   }
 
   resize() {
     this.setupCanvas();
+    if (this.lastState) this.render(this.lastState);
   }
 
   clear() {
@@ -81,30 +83,32 @@ export class DoubleBufferedRenderer {
   }
 
   render(state: RenderState) {
+    this.lastState = state;
     const ctx = this.offscreenCtx;
     const width = this.offscreenCanvas.width / this.dpr;
     const height = this.offscreenCanvas.height / this.dpr;
 
-    // Dark background
-    ctx.fillStyle = this.config.backgroundColor;
-    ctx.fillRect(0, 0, width, height);
+    this.drawReactiveBackground(ctx, width, height);
 
     const { array, comparing, swapping, sorted, pivot } = state;
     if (array.length === 0) return;
 
-    const gap = 2;
-    const totalGaps = array.length + 1;
-    const barWidth = Math.max(2, (width - totalGaps * gap) / array.length);
+    const gap = Math.max(3, Math.min(8, width / array.length * 0.12));
+    const paddingX = 28;
+    const usableWidth = width - paddingX * 2;
+    const barWidth = Math.max(8, (usableWidth - (array.length - 1) * gap) / array.length);
     const maxValue = Math.max(...array, 1);
-    const padding = 40;
-    const chartHeight = height - padding * 2;
+    const paddingTop = 52;
+    const paddingBottom = 42;
+    const baseline = height - paddingBottom;
+    const chartHeight = height - paddingTop - paddingBottom;
 
     // Draw bars
     for (let i = 0; i < array.length; i++) {
       const barHeightVal = (array[i] / maxValue) * chartHeight;
       const barHeight = Math.max(4, barHeightVal);
-      const x = gap + i * (barWidth + gap);
-      const y = height - padding - barHeight;
+      const x = paddingX + i * (barWidth + gap);
+      const y = baseline - barHeight;
       const bw = Math.max(2, barWidth);
       const bh = barHeight;
 
@@ -126,14 +130,14 @@ export class DoubleBufferedRenderer {
         isActive = true;
       }
 
-      // Draw top-rounded bar
+      // Draw pill-shaped bar
       ctx.save();
-      this.drawTopRoundedBar(ctx, x, y, bw, bh, Math.min(bw / 2, 6));
+      this.drawRoundedBar(ctx, x, y, bw, bh, Math.min(bw / 2, 14));
 
       // Gradient fill
       if (this.config.gradientEnabled) {
         const gradient = ctx.createLinearGradient(x, y, x, y + bh);
-        gradient.addColorStop(0, this.lightenColor(color, 0.3));
+        gradient.addColorStop(0, this.lightenColor(color, 0.38));
         gradient.addColorStop(0.5, color);
         gradient.addColorStop(1, this.darkenColor(color, 0.2));
         ctx.fillStyle = gradient;
@@ -162,33 +166,36 @@ export class DoubleBufferedRenderer {
 
     // Draw swap arrows between comparing elements
     if (comparing.length >= 2) {
-      this.drawSwapArrows(ctx, array, comparing, maxValue, chartHeight, width, height, padding, gap, barWidth);
+      this.drawSwapArrows(ctx, array, comparing, maxValue, chartHeight, baseline, paddingX, gap, barWidth);
     }
 
     // Copy to main canvas
-    this.ctx.drawImage(this.offscreenCanvas, 0, 0, width * this.dpr, height * this.dpr);
+    this.ctx.drawImage(this.offscreenCanvas, 0, 0, width, height);
   }
 
-  private drawTopRoundedBar(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  private drawRoundedBar(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+    const radius = Math.min(r, h / 2);
     ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + w - r, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-    ctx.lineTo(x + w, y + h);
-    ctx.lineTo(x, y + h);
-    ctx.lineTo(x, y + r);
-    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + w - radius, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+    ctx.lineTo(x + w, y + h - radius);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+    ctx.lineTo(x + radius, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
     ctx.closePath();
   }
 
-  private drawSwapArrows(ctx: CanvasRenderingContext2D, array: number[], comparing: number[], maxValue: number, chartHeight: number, width: number, height: number, padding: number, gap: number, barWidth: number) {
+  private drawSwapArrows(ctx: CanvasRenderingContext2D, array: number[], comparing: number[], maxValue: number, chartHeight: number, baseline: number, paddingX: number, gap: number, barWidth: number) {
     const [i, j] = comparing;
     if (i === undefined || j === undefined || i === j) return;
 
-    const x1 = gap + i * (barWidth + gap) + barWidth / 2;
-    const x2 = gap + j * (barWidth + gap) + barWidth / 2;
-    const y1 = height - padding - (array[i] / maxValue) * chartHeight - 12;
-    const y2 = height - padding - (array[j] / maxValue) * chartHeight - 12;
+    const x1 = paddingX + i * (barWidth + gap) + barWidth / 2;
+    const x2 = paddingX + j * (barWidth + gap) + barWidth / 2;
+    const y1 = baseline - (array[i] / maxValue) * chartHeight - 12;
+    const y2 = baseline - (array[j] / maxValue) * chartHeight - 12;
     const arrowY = Math.min(y1, y2) - 10;
 
     ctx.save();
@@ -220,6 +227,37 @@ export class DoubleBufferedRenderer {
     ctx.restore();
   }
 
+  private drawReactiveBackground(ctx: CanvasRenderingContext2D, width: number, height: number) {
+    const px = width * 0.58;
+    const py = height * 0.42;
+    const accent = '#3b82f6';
+    const bgGradient = ctx.createLinearGradient(0, 0, width, height);
+    bgGradient.addColorStop(0, '#060a14');
+    bgGradient.addColorStop(0.48, this.config.backgroundColor);
+    bgGradient.addColorStop(1, '#151023');
+    ctx.fillStyle = bgGradient;
+    ctx.fillRect(0, 0, width, height);
+
+    const glow = ctx.createRadialGradient(px, py, 0, px, py, Math.max(width, height) * 0.72);
+    glow.addColorStop(0, this.hexToRgba(accent, 0.13));
+    glow.addColorStop(0.34, this.hexToRgba(accent, 0.06));
+    glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.save();
+    ctx.globalAlpha = 0.14;
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 1;
+    for (let x = -40; x < width + 40; x += 46) {
+      ctx.beginPath();
+      ctx.moveTo(x + 16, 0);
+      ctx.lineTo(x - 64, height);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   private roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
     ctx.moveTo(x + r, y);
     ctx.lineTo(x + w - r, y);
@@ -232,19 +270,42 @@ export class DoubleBufferedRenderer {
   }
 
   private darkenColor(hex: string, amount: number): string {
-    const num = parseInt(hex.replace('#', ''), 16);
-    const r = Math.max(0, (num >> 16) * (1 - amount));
-    const g = Math.max(0, ((num >> 8) & 0x00ff) * (1 - amount));
-    const b = Math.max(0, (num & 0x0000ff) * (1 - amount));
+    const source = this.hexToRgb(hex);
+    const r = Math.max(0, source.r * (1 - amount));
+    const g = Math.max(0, source.g * (1 - amount));
+    const b = Math.max(0, source.b * (1 - amount));
     return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
   }
 
   private lightenColor(hex: string, amount: number): string {
-    const num = parseInt(hex.replace('#', ''), 16);
-    const r = Math.min(255, (num >> 16) + 255 * amount);
-    const g = Math.min(255, ((num >> 8) & 0x00ff) + 255 * amount);
-    const b = Math.min(255, (num & 0x0000ff) + 255 * amount);
+    const source = this.hexToRgb(hex);
+    const r = Math.min(255, source.r + 255 * amount);
+    const g = Math.min(255, source.g + 255 * amount);
+    const b = Math.min(255, source.b + 255 * amount);
     return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
+  }
+
+  private hexToRgba(hex: string, alpha: number): string {
+    const { r, g, b } = this.hexToRgb(hex);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  private hexToRgb(hex: string): { r: number; g: number; b: number } {
+    const rgbMatch = hex.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+    if (rgbMatch) {
+      return {
+        r: Number(rgbMatch[1]),
+        g: Number(rgbMatch[2]),
+        b: Number(rgbMatch[3]),
+      };
+    }
+    const normalized = hex.replace('#', '');
+    const num = parseInt(normalized, 16);
+    return {
+      r: (num >> 16) & 0xff,
+      g: (num >> 8) & 0xff,
+      b: num & 0xff,
+    };
   }
 
   emitParticles(x: number, y: number, count: number = 8, color: string = '#1a1a1a') {
