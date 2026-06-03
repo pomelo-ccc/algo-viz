@@ -1,12 +1,18 @@
-import { createSignal, onMount, onCleanup, createEffect } from 'solid-js';
+import { createSignal, onMount, onCleanup, createEffect, createMemo } from 'solid-js';
 import { sortingCodes, languageLabels, type Language } from '../utils/codeData';
 import Dropdown from '../components/Dropdown';
-import CodePanel from '../components/CodePanel';
 import ControlPanel from '../components/ControlPanel';
 import { AnimationController, type AnimStep } from '../utils/animation';
 import { createSortingRenderer, type RenderState } from '../utils/canvasRenderer';
 import { SortingVisualizer } from '../utils/three/SortingVisualizer';
 import { DARK_THEME, LIGHT_THEME } from '../utils/three/ThreeVisualizer';
+import Prism from 'prismjs';
+import 'prismjs/components/prism-javascript';
+import 'prismjs/components/prism-typescript';
+import 'prismjs/components/prism-python';
+import 'prismjs/components/prism-c';
+import 'prismjs/components/prism-cpp';
+import 'prismjs/components/prism-java';
 
 interface ComplexityInfo {
   avg: string;
@@ -40,6 +46,7 @@ export default function Sorting() {
   const [steps, setSteps] = createSignal<string[]>([]);
   const [lang, setLang] = createSignal<Language>('javascript');
   const [array, setArray] = createSignal<number[]>([]);
+  const [initialArray, setInitialArray] = createSignal<number[]>([]);
   const [currentStep, setCurrentStep] = createSignal(-1);
   const [totalSteps, setTotalSteps] = createSignal(0);
   const [viewMode, setViewMode] = createSignal<'2d' | '3d'>('2d');
@@ -60,6 +67,7 @@ export default function Sorting() {
     controller = new AnimationController<number[]>({ speed: speed() });
     controller.setCallbacks(
       (step: AnimStep<number[]>) => {
+        setArray(step.state);
         if (viewMode() === '3d' && visualizer3D) {
           // Update bar heights to reflect current array state
           visualizer3D.updateArray(step.state);
@@ -137,6 +145,7 @@ export default function Sorting() {
       arr.push(Math.floor(Math.random() * 85) + 15);
     }
     setArray(arr);
+    setInitialArray(arr);
     controller?.reset();
     controller?.setSteps([]);
     setSteps([]);
@@ -423,6 +432,27 @@ export default function Sorting() {
     return code[lang()];
   };
 
+  const finalArray = createMemo(() => [...initialArray()].sort((a, b) => a - b));
+
+  const prismLanguage = createMemo(() => {
+    const languageMap: Record<Language, string> = {
+      javascript: 'javascript',
+      typescript: 'typescript',
+      python: 'python',
+      cpp: 'cpp',
+      java: 'java',
+    };
+    return languageMap[lang()] ?? 'javascript';
+  });
+
+  const highlightedCode = createMemo(() => {
+    const source = codeContent();
+    const grammar = Prism.languages[prismLanguage()] ?? Prism.languages.javascript;
+    return Prism.highlight(source, grammar, prismLanguage());
+  });
+
+  const renderArrayLine = (values: number[]) => values.join('  ');
+
   return (
     <main class="visualization-page">
       <div class="container">
@@ -515,6 +545,27 @@ export default function Sorting() {
           ]}
         />
 
+        <div class="info-panel sorting-datasets-panel">
+          <div class="sorting-datasets-header">
+            <h3>数据快照</h3>
+            <div class="sorting-datasets-meta">{array().length} 个元素</div>
+          </div>
+          <div class="sorting-datasets-grid">
+            <div class="sorting-dataset-card">
+              <div class="sorting-dataset-label">初始数据</div>
+              <div class="sorting-dataset-values">{renderArrayLine(initialArray())}</div>
+            </div>
+            <div class="sorting-dataset-card">
+              <div class="sorting-dataset-label">当前状态</div>
+              <div class="sorting-dataset-values">{renderArrayLine(array())}</div>
+            </div>
+            <div class="sorting-dataset-card">
+              <div class="sorting-dataset-label">最终结果</div>
+              <div class="sorting-dataset-values">{renderArrayLine(finalArray())}</div>
+            </div>
+          </div>
+        </div>
+
         <div class="info-panel">
           <h3>算法复杂度</h3>
           <div class="complexity">
@@ -547,7 +598,9 @@ export default function Sorting() {
               options={Object.entries(languageLabels).map(([key, label]) => ({ value: key, label }))}
             />
           </div>
-          <pre class="code-block"><code>{codeContent()}</code></pre>
+          <pre class="code-block code-block-prism">
+            <code class={`language-${prismLanguage()}`} innerHTML={highlightedCode()} />
+          </pre>
         </div>
 
         <div class="steps-panel">
@@ -560,8 +613,6 @@ export default function Sorting() {
             )}
           </div>
         </div>
-
-        <CodePanel category="sorting" algorithm={algorithm()} />
       </div>
     </main>
   );

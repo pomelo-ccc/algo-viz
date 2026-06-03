@@ -1,3 +1,5 @@
+import { gsap } from 'gsap';
+
 export interface RenderState {
   array: number[];
   comparing: number[];
@@ -40,6 +42,9 @@ export class DoubleBufferedRenderer {
   private config: RenderConfig;
   private dpr: number = 1;
   private lastState: RenderState | null = null;
+  private animatedValues: number[] = [];
+  private animatedState: RenderState = { array: [], comparing: [], swapping: [], sorted: [] };
+  private valueTweenTarget: Record<number, number> = {};
 
   constructor(canvas: HTMLCanvasElement, config: Partial<RenderConfig> = {}) {
     this.canvas = canvas;
@@ -84,13 +89,18 @@ export class DoubleBufferedRenderer {
 
   render(state: RenderState) {
     this.lastState = state;
+    this.syncAnimatedState(state);
+    this.drawFrame();
+  }
+
+  private drawFrame() {
     const ctx = this.offscreenCtx;
     const width = this.offscreenCanvas.width / this.dpr;
     const height = this.offscreenCanvas.height / this.dpr;
 
     this.drawReactiveBackground(ctx, width, height);
 
-    const { array, comparing, swapping, sorted, pivot } = state;
+    const { array, comparing, swapping, sorted, pivot } = this.animatedState;
     if (array.length === 0) return;
 
     const gap = Math.max(3, Math.min(8, width / array.length * 0.12));
@@ -161,11 +171,51 @@ export class DoubleBufferedRenderer {
         ctx.stroke();
         ctx.shadowBlur = 0;
       }
+
+      const valueLabel = Math.round(array[i]).toString();
+      ctx.fillStyle = isActive ? '#f8fbff' : 'rgba(232, 238, 255, 0.82)';
+      ctx.font = `500 ${Math.max(11, Math.min(14, bw * 0.3))}px var(--font-mono)`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(valueLabel, x + bw / 2, y - 8);
       ctx.restore();
     }
 
     // Copy to main canvas
     this.ctx.drawImage(this.offscreenCanvas, 0, 0, width, height);
+  }
+
+  private syncAnimatedState(state: RenderState) {
+    if (this.animatedValues.length !== state.array.length) {
+      this.animatedValues = [...state.array];
+      this.valueTweenTarget = {};
+    } else {
+      state.array.forEach((value, index) => {
+        if (this.valueTweenTarget[index] === value) return;
+        this.valueTweenTarget[index] = value;
+        gsap.to(this.animatedValues, {
+          [index]: value,
+          duration: 0.42,
+          ease: 'power2.inOut',
+          overwrite: 'auto',
+          onUpdate: () => {
+            this.animatedState = {
+              ...this.animatedState,
+              array: [...this.animatedValues],
+            };
+            this.drawFrame();
+          },
+        });
+      });
+    }
+
+    this.animatedState = {
+      array: [...this.animatedValues],
+      comparing: [...state.comparing],
+      swapping: [...state.swapping],
+      sorted: [...state.sorted],
+      pivot: state.pivot,
+    };
   }
 
   private drawRoundedBar(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -317,6 +367,7 @@ export class DoubleBufferedRenderer {
     if (this.animationId) {
       cancelAnimationFrame(this.animationId);
     }
+    gsap.killTweensOf(this.animatedValues);
     this.particles = [];
   }
 }
